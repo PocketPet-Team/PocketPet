@@ -10,14 +10,23 @@
 *.a
 *.lib
 *.d
+*.map
+*.lst
+compile_commands.json
 
-# PlatformIO
+# nRF Connect SDK / Zephyr / CMake
+build/
+build_*/
+zephyr/.config*
+.west/
+!west.yml
+
+# PlatformIO / STM32 / legacy embedded
 .pio/
 .pioenvs/
 .piolibdeps/
-
-# ESP-IDF
-build/
+Debug/
+Release/
 sdkconfig.old
 
 # Arduino
@@ -32,10 +41,49 @@ sdkconfig.old
 _autosave-*
 *.bak
 fp-info-cache
+*-backups/
+*.lck
+~*.lck
 
 # 3D CAD & Slicer temporary files
 *.gcode
 *.tmp
+*.3mf.bak
+
+# Apple / Xcode / Swift
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserdata/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+Pods/
+
+# Python & analysis
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# Raw power/sensor captures & local secrets
+*.ppk2
+*.csv.gz
+experiments/data/raw/
+.env
+.env.*
+!.env.example
+*.local
 
 # Operating System specific files
 .DS_Store
