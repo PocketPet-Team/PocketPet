@@ -5,6 +5,7 @@ Technical documentation and specifications for PocketPet.
 ## Available Documents
 
 - [System & Measurement Architecture](architecture.md) — Hardware/firmware block diagram, RQ1–RQ4 experimental controls, and power validation methodology.
+- [Pet state machine on macOS](../firmware/README.md#run-on-macos) — Build, run, and test the portable firmware core on a Mac.
 
 ## Planned Specifications
 
