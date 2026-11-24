@@ -15,6 +15,20 @@ PocketPet aims to combine responsive physical interactions (button presses, moti
   - **Nearby find alert:** Physical vibration within **2 s** for at least **95%** of requests on an established BLE link.
   - **Pilot-calibrated thresholds:** Pickup detection sensitivity, pet-state freshness bounds, and post-loss reconnection deadlines will be established in pilot runs and frozen prior to formal testing.
 
+## Software Stack
+
+This stack is the starting point for the first prototype.
+
+| Component | Stack | Role |
+| --- | --- | --- |
+| [Tag firmware](firmware/README.md) | C, Nordic nRF Connect SDK (NCS), and its bundled Zephyr RTOS | Zephyr provides BLE, timers, GPIO interrupts, and power management. Keep the pet state machine portable C so it can be tested on a Mac and built into the nRF52840 firmware. Pin the NCS and toolchain versions when setting up the firmware build. |
+| [iPhone test app](apps/README.md) | Swift, Core Bluetooth, and SwiftUI | Discover and connect to the tag, send Find requests, receive events, and export trial logs. Record the negotiated BLE connection interval on the tag for power comparisons. |
+| [Experiment tooling](experiments/README.md) | Python and CSV | Replay timestamped workloads, integrate current traces exported from the Nordic PPK2, and compare charge use and response times across firmware configurations. |
+
+Use event-driven updates so the tag can idle between interactions. Compute time-dependent pet state from elapsed time and schedule a timer when a state change must happen at a specific time. Prioritize button feedback and Find requests, batch routine BLE transfers within the state-freshness limit, and maintain the LCD's required VCOM inversion when retaining a resting image.
+
+Evaluate power policies on the same board with matched workloads. Compare charge measured at the battery input while checking the button and Find response targets above. See the [measurement and validation plan](docs/architecture.md#engineering-targets--validation-plan).
+
 ## Research Questions (Battery-Life Co-Design)
 
 | ID | Focus Area | Controlled Comparison & Metrics |
