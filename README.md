@@ -3,7 +3,7 @@
 An embedded virtual pet in keychain and fridge-magnet form factor with companion mobile experiences and low-power hardware/firmware co-design research at UC Irvine (UCI UROP Research Experience Fellowship, 2026–2027).
 
 > **Project Status: Early setup (pre-prototype).**
-> The portable C pet state machine runs on a Mac with a scripted replay and unit tests. Hardware choices, research protocols, and timelines described below reflect working engineering plans subject to faculty-mentor review and pilot calibration.
+> The portable C pet state machine and advertising policy run on a Mac with scripted replays and unit tests. Hardware choices, research protocols, and timelines described below reflect working engineering plans subject to faculty-mentor review and pilot calibration.
 
 ## Overview & Engineering Targets
 
@@ -50,8 +50,8 @@ PocketPet/
 │   ├── README.md
 │   └── architecture.md
 ├── firmware/                 # Portable pet state machine, host replay, and planned nRF52840 firmware
-│   ├── core/                 # Portable C state machine
-│   ├── host/                 # CMake replay and tests
+│   ├── core/                 # Portable C pet state machine and advertising policy
+│   ├── host/                 # CMake replays and tests
 │   └── README.md
 ├── hardware/                 # KiCad schematics/PCBs, 3D-printed enclosure CAD, bench wiring
 │   └── README.md

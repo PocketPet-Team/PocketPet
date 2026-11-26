@@ -4,7 +4,7 @@ Instructions for AI coding and documentation assistants working inside the publi
 
 ## 1. Repository Status & Truthfulness Rules
 
-- **Current state:** The portable C pet state machine builds and runs through the host CMake project in `firmware/host/`. The nRF Connect SDK / Zephyr application, KiCad design, Swift/Xcode project, and PPK2 data collection are planned.
+- **Current state:** The portable C pet state machine and advertising policy build and run through the host CMake project in `firmware/host/`. The nRF Connect SDK / Zephyr application, KiCad design, Swift/Xcode project, and PPK2 data collection are planned.
 - **Never fabricate implementation details:** Do not invent file paths, pin numbers, GPIO assignments, build/flash commands, test outputs, measured currents, power savings, statistical significance, or completed prototype milestones.
 - **Separate plans from measurements:** Clearly label target budgets, planned hardware revisions, and pilot parameters as *planned* or *pending* until actual code, hardware schematics, or committed experiment outputs verify them.
 
