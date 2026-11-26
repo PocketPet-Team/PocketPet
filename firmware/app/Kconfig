@@ -1,0 +1,43 @@
+menu "PocketPet"
+
+# The defaults below make the application run. They are not pilot values; RQ3
+# fixes the intervals and the switch time during pilot runs.
+
+config POCKETPET_ADV_FAST_INTERVAL
+	int "Fast advertising interval (0.625 ms units)"
+	range 32 16384
+	default 160
+	help
+	  Interval used right after the link is lost. 160 units is 100 ms.
+
+config POCKETPET_ADV_SLOW_INTERVAL
+	int "Slow advertising interval (0.625 ms units)"
+	range 32 16384
+	default 1600
+	help
+	  Interval used after the fast period. Set it equal to
+	  POCKETPET_ADV_FAST_INTERVAL for the fixed-rate baseline. 1600 units
+	  is 1 s.
+
+config POCKETPET_ADV_FAST_DURATION_MS
+	int "Time at the fast interval before switching (ms)"
+	range 1 4294967
+	default 30000
+
+config POCKETPET_ROUTINE_SYNC_PERIOD_S
+	int "Routine state sync period (s)"
+	range 1 86400
+	default 300
+	help
+	  How often a routine state update is queued. RQ4 sets the freshness
+	  limit this period must respect.
+
+config POCKETPET_FIND_INDICATION_MS
+	int "Find indication length (ms)"
+	default 500
+	help
+	  How long the stand-in for the haptic motor stays on.
+
+endmenu
+
+source "Kconfig.zephyr"
