@@ -29,8 +29,17 @@ config POCKETPET_ROUTINE_SYNC_PERIOD_S
 	range 1 86400
 	default 300
 	help
-	  How often a routine state update is queued. RQ4 sets the freshness
-	  limit this period must respect.
+	  How often a routine state update becomes due.
+
+config POCKETPET_SYNC_MAX_HOLD_MS
+	int "Longest a routine update may wait to share a transfer (ms)"
+	range 0 86400000
+	default 0
+	help
+	  0 sends every routine update when it is due, which is the unbatched
+	  baseline for RQ4. A larger value holds an update for up to that long
+	  so later updates, or a Find exchange, share its transfer. RQ4 sets
+	  the freshness limit this value must respect.
 
 config POCKETPET_FIND_INDICATION_MS
 	int "Find indication length (ms)"

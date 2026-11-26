@@ -13,5 +13,6 @@ target_sources(app PRIVATE
     ${POCKETPET_CORE_DIR}/pet_state.c
     ${POCKETPET_CORE_DIR}/adv_policy.c
     ${POCKETPET_CORE_DIR}/marker.c
+    ${POCKETPET_CORE_DIR}/sync_policy.c
 )
 target_sources_ifdef(CONFIG_POCKETPET_PPK2_MARKERS app PRIVATE src/markers.c)

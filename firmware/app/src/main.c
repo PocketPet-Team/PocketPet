@@ -2,8 +2,9 @@
  * PocketPet tag application for bench bring-up on the nRF52840 DK.
  *
  * Every input (button, Bluetooth callbacks, timers) is queued and applied to
- * the portable state machines from one work item, so pet_step() and
- * adv_policy_step() always see events in order and never run concurrently.
+ * the portable state machines from one work item, so pet_step(),
+ * adv_policy_step() and sync_policy_step() always see events in order and
+ * never run concurrently.
  * The board's LED1 stands in for the display and LED2 for the haptic motor
  * until those drivers exist. The same work item keeps the PPK2 marker lines in
  * step with the state machines.
@@ -23,6 +24,7 @@
 #include "markers.h"
 #include "pet_service.h"
 #include "pet_state.h"
+#include "sync_policy.h"
 
 LOG_MODULE_REGISTER(pocketpet, LOG_LEVEL_INF);
 
@@ -32,6 +34,7 @@ LOG_MODULE_REGISTER(pocketpet, LOG_LEVEL_INF);
 enum app_event_source {
     SOURCE_PET,
     SOURCE_ADV,
+    SOURCE_SYNC,
 };
 
 struct app_event {
@@ -62,6 +65,7 @@ static const struct bt_data scan_response_data[] = {
 /* Owned by the event work item. */
 static struct pet_state pet;
 static struct adv_policy advertising;
+static struct sync_policy routine_sync;
 
 /* Shared with the Bluetooth RX thread. */
 static struct bt_conn *current_conn;
@@ -70,11 +74,13 @@ static atomic_t notifications_enabled;
 static void process_events(struct k_work *work);
 static void switch_timer_expired(struct k_work *work);
 static void routine_sync_due(struct k_work *work);
+static void hold_timer_expired(struct k_work *work);
 static void find_indication_done(struct k_work *work);
 
 static K_WORK_DEFINE(event_work, process_events);
 static K_WORK_DELAYABLE_DEFINE(switch_timer, switch_timer_expired);
 static K_WORK_DELAYABLE_DEFINE(routine_sync_timer, routine_sync_due);
+static K_WORK_DELAYABLE_DEFINE(hold_timer, hold_timer_expired);
 static K_WORK_DELAYABLE_DEFINE(find_indication_timer, find_indication_done);
 
 /* Safe from interrupts and any thread. Returns false if the event was dropped. */
@@ -167,6 +173,29 @@ static void process_pet_event(enum pet_event event, uint64_t now_ms)
     }
 }
 
+static void process_sync_event(enum sync_event event, uint64_t now_ms)
+{
+    struct sync_action action;
+
+    if (!sync_policy_step(&routine_sync, event, now_ms, &action)) {
+        return;
+    }
+    if (action.cancel_hold_timer) {
+        (void)k_work_cancel_delayable(&hold_timer);
+    }
+    if (action.arm_hold_timer) {
+        (void)k_work_reschedule(&hold_timer, K_MSEC(action.hold_deadline_ms - now_ms));
+    }
+    if (action.flush) {
+        LOG_INF("Routine transfer for %u updates", action.flushed_updates);
+    }
+    // A new subscriber also gets an update that a flush could not deliver
+    // because the previous peer had just left.
+    if (action.flush || event == SYNC_EVENT_LINK_READY) {
+        process_pet_event(PET_EVENT_FLUSH_ROUTINE_SYNC, now_ms);
+    }
+}
+
 static void process_events(struct k_work *work)
 {
     ARG_UNUSED(work);
@@ -181,6 +210,8 @@ static void process_events(struct k_work *work)
             if (adv_policy_step(&advertising, (enum adv_event)event.code, now_ms, &action)) {
                 apply_adv_action(&action, now_ms);
             }
+        } else if (event.source == SOURCE_SYNC) {
+            process_sync_event((enum sync_event)event.code, now_ms);
         } else {
             process_pet_event((enum pet_event)event.code, now_ms);
         }
@@ -199,8 +230,15 @@ static void routine_sync_due(struct k_work *work)
 {
     ARG_UNUSED(work);
     queue_event(SOURCE_PET, PET_EVENT_ROUTINE_SYNC_DUE);
-    queue_event(SOURCE_PET, PET_EVENT_FLUSH_ROUTINE_SYNC);
+    // The sync policy decides when the update goes out.
+    queue_event(SOURCE_SYNC, SYNC_EVENT_UPDATE);
     (void)k_work_schedule(&routine_sync_timer, K_SECONDS(CONFIG_POCKETPET_ROUTINE_SYNC_PERIOD_S));
+}
+
+static void hold_timer_expired(struct k_work *work)
+{
+    ARG_UNUSED(work);
+    queue_event(SOURCE_SYNC, SYNC_EVENT_HOLD_TIMER);
 }
 
 static void find_indication_done(struct k_work *work)
@@ -267,6 +305,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
         current_conn = NULL;
     }
     queue_event(SOURCE_PET, PET_EVENT_LINK_DISCONNECTED);
+    queue_event(SOURCE_SYNC, SYNC_EVENT_LINK_LOST);
 }
 
 /*
@@ -297,15 +336,15 @@ BT_CONN_CB_DEFINE(connection_callbacks) = {
 static void find_requested(void)
 {
     queue_event(SOURCE_PET, PET_EVENT_FIND);
+    // Queued behind the Find itself, so a held update shares this exchange
+    // without delaying the indication.
+    queue_event(SOURCE_SYNC, SYNC_EVENT_RADIO_ACTIVE);
 }
 
 static void notifications_changed(bool enabled)
 {
     atomic_set(&notifications_enabled, enabled);
-    if (enabled) {
-        // Deliver an update that was queued while no peer could receive it.
-        queue_event(SOURCE_PET, PET_EVENT_FLUSH_ROUTINE_SYNC);
-    }
+    queue_event(SOURCE_SYNC, enabled ? SYNC_EVENT_LINK_READY : SYNC_EVENT_LINK_LOST);
 }
 
 static void state_sent(void)
@@ -370,10 +409,14 @@ int main(void)
         .slow_interval_units = CONFIG_POCKETPET_ADV_SLOW_INTERVAL,
         .fast_duration_ms = CONFIG_POCKETPET_ADV_FAST_DURATION_MS,
     };
+    static const struct sync_policy_config sync_config = {
+        .max_hold_ms = CONFIG_POCKETPET_SYNC_MAX_HOLD_MS,
+    };
     const uint64_t now_ms = (uint64_t)k_uptime_get();
 
     k_msgq_init(&event_queue, event_queue_buffer, sizeof(struct app_event), EVENT_QUEUE_LENGTH);
     pet_init(&pet, now_ms);
+    sync_policy_init(&routine_sync, &sync_config, now_ms);
     pet_service_set_mood(pet.mood);
     if (!adv_policy_init(&advertising, &adv_config, now_ms)) {
         LOG_ERR("Invalid advertising configuration");
