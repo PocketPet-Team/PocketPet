@@ -39,6 +39,11 @@ The replay connects at time zero and advances the simulated clock by 30 minutes.
 
   The counts ignore the random 0 to 10 ms delay a controller adds to each event, so they are upper bounds. They count radio events only. Charge per event and reconnection time must be measured on the device.
 
+### Marker layout
+
+- [`core/marker.h`](core/marker.h) defines the logic lines that label a PPK2 capture: a two-line operating state code and one line each for the `button`, `haptic`, and `transfer` events. [`docs/ppk2-markers.md`](../docs/ppk2-markers.md) describes what each line means.
+- `marker_map` prints the layout as the `markers` object of a run manifest. The committed copy is [`app/ppk2-markers.json`](app/ppk2-markers.json), and the `marker_map_is_current` test fails when it no longer matches the header.
+
 ## Target Platforms
 
 - **Bench bring-up & debugger-isolated fallback:** Nordic `nRF52840 DK`
@@ -53,7 +58,7 @@ The replay connects at time zero and advances the simulated clock by 30 minutes.
 | **BLE Stack & Reconnection** | GATT services, phone-accepted connection-interval telemetry, fixed vs. fast-then-slow advertising schedules | RQ2, RQ3, RQ4 |
 | **Display Scheduler (`SHARP Memory LCD`)** | SPI display driver, VCOM/polarity inversion maintenance, resting-image retention, and animation prioritization | RQ4 |
 | **Haptics (`DRV2605L`)** | I2C haptic trigger for nearby find alerts and feedback patterns | RQ3, RQ4 |
-| **Event Markers & Replay Hooks** | Deterministic workload execution and logic-pin toggles synchronized to Nordic PPK2 captures | All |
+| **Event Markers & Replay Hooks** | Deterministic workload execution and logic-pin toggles synchronized to Nordic PPK2 captures. State and event markers exist in the Zephyr application; replay hooks are planned. | All |
 
 ## Zephyr application
 
@@ -64,6 +69,7 @@ The replay connects at time zero and advances the simulated clock by 30 minutes.
 - A routine state update is queued every 300 s and sent as a notification once a peer subscribes. An update queued while nobody is subscribed waits for the next subscription.
 - The log reports the running LF clock source after Bluetooth starts, and the connection interval, latency, and supervision timeout on connection and on every parameter update.
 - The GATT service is described in [`docs/ble-protocol.md`](../docs/ble-protocol.md). No characteristic requires pairing yet, so any nearby central can read the mood and trigger Find.
+- Five GPIO lines mark the operating state and the button, haptic, and transfer events for a PPK2. On the DK they are P1.03 to P1.07, a provisional bench assignment. [`docs/ppk2-markers.md`](../docs/ppk2-markers.md) has the layout and wiring. Set `CONFIG_POCKETPET_PPK2_MARKERS=n` to build without them.
 
 All inputs (button interrupt, Bluetooth callbacks, timers) go through one queue and are applied to the state machines from a single work item, so the cores see events in order and never run concurrently.
 
@@ -95,7 +101,7 @@ west build -b nrf52840dk/nrf52840 -d <rc-build-dir> <repo>/firmware/app -- -DEXT
 
 With NCS v3.4.2 this image sets `CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y` and calibrates every 4000 ms (`CONFIG_MPSL_CALIBRATION_PERIOD`). The default image uses the 32.768 kHz crystal. Check `zephyr/.config` in the build directory to confirm which one a build used.
 
-Both images build without warnings. The default image uses 135,564 B of flash and 25,896 B of RAM.
+Both images build without warnings. With markers enabled, the default image uses 136,128 B of flash and 25,896 B of RAM.
 
 ### Flash
 
