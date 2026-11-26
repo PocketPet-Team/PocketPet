@@ -38,6 +38,15 @@ config POCKETPET_FIND_INDICATION_MS
 	help
 	  How long the stand-in for the haptic motor stays on.
 
+config POCKETPET_PPK2_MARKERS
+	bool "Drive PPK2 logic markers"
+	default y
+	depends on DT_HAS_POCKETPET_PPK2_MARKERS_ENABLED
+	help
+	  Drive the operating state and event lines described in
+	  docs/ppk2-markers.md so a PPK2 capture can be split by state. Needs
+	  a devicetree node with the pocketpet,ppk2-markers compatible.
+
 endmenu
 
 source "Kconfig.zephyr"

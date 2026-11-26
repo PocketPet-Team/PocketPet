@@ -24,6 +24,11 @@ struct pet_service_callbacks {
     void (*find_requested)(void);
     /* A peer enabled or disabled state notifications. Runs in the Bluetooth RX thread. */
     void (*notifications_changed)(bool enabled);
+    /*
+     * A state notification has been transmitted. Not called for one the stack
+     * drops, for example on disconnection. May run in a Bluetooth thread.
+     */
+    void (*state_sent)(void);
 };
 
 void pet_service_init(const struct pet_service_callbacks *callbacks);
