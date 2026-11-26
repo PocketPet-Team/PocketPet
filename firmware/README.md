@@ -78,8 +78,7 @@ nrfutil install sdk-manager
 nrfutil sdk-manager install v3.4.2
 ```
 
-Then open the toolchain environment and build from the SDK directory (`C:
-cs3.4.2` on Windows, `~/ncs/v3.4.2` on Linux, `/opt/nordic/ncs/v3.4.2` on macOS):
+Then open the toolchain environment and build from the SDK directory (`C:\ncs\v3.4.2` on Windows, `~/ncs/v3.4.2` on Linux, `/opt/nordic/ncs/v3.4.2` on macOS):
 
 ```sh
 nrfutil sdk-manager toolchain launch --ncs-version v3.4.2 --shell
