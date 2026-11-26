@@ -34,11 +34,24 @@ def paired_difference_ci(
         raise ValueError("baseline and candidate must be equal-length sequences")
     if base.size < 2:
         raise ValueError("at least two pairs are needed for a confidence interval")
+    if resamples < 1 or not np.isfinite(base).all() or not np.isfinite(cand).all():
+        raise ValueError("paired comparisons need finite values and a positive resample count")
 
     draws = np.random.default_rng(seed).integers(0, base.size, size=(resamples, base.size))
     base_draws, cand_draws = base[draws], cand[draws]
-    ratio = cand.mean() / base.mean()
-    ratio_draws = cand_draws.mean(axis=1) / base_draws.mean(axis=1)
+    # Zero baseline timeouts or zero transfers are valid for the absolute comparison.
+    ratio = cand.mean() / base.mean() if base.mean() != 0 else None
+    draw_means = base_draws.mean(axis=1)
+    relative_ci = None
+    if ratio is not None and np.all(draw_means != 0):
+        ratio_draws = cand_draws.mean(axis=1) / draw_means
+        relative_ci = _studentized_interval(
+            (cand - ratio * base) / base.mean() + ratio - 1.0,
+            (cand_draws - ratio_draws[:, None] * base_draws) / draw_means[:, None]
+            + ratio_draws[:, None]
+            - 1.0,
+            confidence,
+        )
     return {
         "pairs": int(base.size),
         "meets_min_pairs": bool(base.size >= MIN_FORMAL_PAIRS),
@@ -48,15 +61,8 @@ def paired_difference_ci(
         "mean_difference_ci": _studentized_interval(
             cand - base, cand_draws - base_draws, confidence
         ),
-        "relative_change": float(ratio - 1.0),
-        # Each pair's first-order contribution to the ratio, shifted so the mean is the ratio.
-        "relative_change_ci": _studentized_interval(
-            (cand - ratio * base) / base.mean() + ratio - 1.0,
-            (cand_draws - ratio_draws[:, None] * base_draws) / base_draws.mean(axis=1)[:, None]
-            + ratio_draws[:, None]
-            - 1.0,
-            confidence,
-        ),
+        "relative_change": float(ratio - 1) if ratio is not None else None,
+        "relative_change_ci": relative_ci,
         "method": "bootstrap-t over whole pairs",
         "confidence": confidence,
         "resamples": resamples,
@@ -79,6 +85,8 @@ def success_rate_ci(
     """
     successes = np.asarray(successes_per_run, dtype=float)
     trials = np.asarray(trials_per_run, dtype=float)
+    if resamples < 1:
+        raise ValueError("resamples must be positive")
     if successes.shape != trials.shape or successes.ndim != 1 or successes.size == 0:
         raise ValueError("successes and trials must be equal-length, non-empty sequences")
     if (trials <= 0).any() or (successes > trials).any() or (successes < 0).any():
@@ -216,6 +224,8 @@ def _t_interval(
         return [float(estimate), float(estimate)]
     # A draw that repeats one value has zero spread and carries no information about t.
     usable = drawn_errors > 0.0
+    if not usable.any():
+        raise ValueError("no resampled estimate has nonzero spread; increase --resamples")
     t_values = (drawn_estimates[usable] - estimate) / drawn_errors[usable]
     tail = (1.0 - confidence) / 2.0
     t_low, t_high = np.quantile(t_values, [tail, 1.0 - tail])

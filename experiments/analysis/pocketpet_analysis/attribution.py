@@ -15,6 +15,7 @@ import numpy as np
 
 from pocketpet_analysis.manifest import MarkerMap
 from pocketpet_analysis.ppk2 import Chunk
+from pocketpet_analysis.trace import MarkerTrace
 
 UC_PER_MAH = 3.6e6
 # A timestamp step longer than this many sample periods means the export dropped samples.
@@ -23,7 +24,11 @@ _KEY_COUNT = 256
 
 
 def attribute_charge(
-    chunks: Iterable[Chunk], markers: MarkerMap, sample_period_s: float | None = None
+    chunks: Iterable[Chunk],
+    markers: MarkerMap,
+    sample_period_s: float | None = None,
+    *,
+    trace: MarkerTrace | None = None,
 ) -> dict[str, Any]:
     """Return totals, per-state background, and per-event incremental charge.
 
@@ -34,9 +39,12 @@ def attribute_charge(
     used_mask = markers.used_mask
     current_sum = np.zeros(_KEY_COUNT)
     sample_count = np.zeros(_KEY_COUNT, dtype=np.int64)
+    segment_count = np.zeros(_KEY_COUNT, dtype=np.int64)
     event_starts = dict.fromkeys(markers.events, 0)
     period_ms = None if sample_period_s is None else sample_period_s * 1000.0
     previous_time: float | None = None
+    first_time: float | None = None
+    irregular_steps = 0
     previous_key = 0
     gap_count, gap_ms, mixed_samples, undriven_samples = 0, 0.0, 0, 0
 
@@ -45,6 +53,8 @@ def attribute_charge(
             raise ValueError("the manifest declares markers but the capture has no logic columns")
 
         times = chunk.time_ms
+        if first_time is None:
+            first_time = float(times[0])
         if previous_time is not None:
             times = np.concatenate(([previous_time], times))
         steps = np.diff(times)
@@ -54,6 +64,9 @@ def attribute_charge(
             period_ms = float(np.median(steps))
         if steps.size and steps.min() <= 0:
             raise ValueError("timestamps are not strictly increasing")
+        irregular_steps += int(
+            np.count_nonzero(~np.isclose(steps, period_ms, rtol=1e-6, atol=1e-6))
+        )
         gaps = steps[steps > GAP_FACTOR * period_ms]
         gap_count += gaps.size
         gap_ms += float((gaps - period_ms).sum())
@@ -69,6 +82,12 @@ def attribute_charge(
 
         # Count low-to-high transitions, including one that straddles two chunks.
         with_previous = np.concatenate(([previous_key], key))
+        starts = key != with_previous[:-1]
+        if previous_time is None:
+            starts[0] = True
+        segment_count += np.bincount(key[starts], minlength=_KEY_COUNT)
+        if trace is not None:
+            trace.observe(chunk, key, starts, period_ms)
         for channel in event_starts:
             level = (with_previous >> channel) & 1
             event_starts[channel] += int(np.count_nonzero(level[1:] > level[:-1]))
@@ -80,10 +99,12 @@ def attribute_charge(
         raise ValueError("the capture has no samples")
 
     period_s = period_ms / 1000.0
-    result = _attribute(current_sum * period_s, sample_count * period_s, markers)
+    result = _attribute(current_sum * period_s, sample_count * period_s, segment_count, markers)
     result["capture"] = {
         "samples": int(sample_count.sum()),
         "sample_period_s": period_s,
+        "elapsed_s": (previous_time - first_time + period_ms) / 1000,
+        "irregular_steps": irregular_steps,
         "gap_count": int(gap_count),
         "gap_s": gap_ms / 1000.0,
         "marker_mixed_samples": mixed_samples,
@@ -93,20 +114,23 @@ def attribute_charge(
     return result
 
 
-def _attribute(charge_uc: np.ndarray, duration_s: np.ndarray, markers: MarkerMap) -> dict[str, Any]:
+def _attribute(
+    charge_uc: np.ndarray, duration_s: np.ndarray, segment_count: np.ndarray, markers: MarkerMap
+) -> dict[str, Any]:
     """Split per-key charge into state background and event increments."""
     groups: dict[str, dict[tuple[str, ...], list[float]]] = {}
     for key in np.flatnonzero(duration_s):
         by_events = groups.setdefault(markers.state_of(int(key)), {})
-        totals = by_events.setdefault(markers.events_of(int(key)), [0.0, 0.0])
+        totals = by_events.setdefault(markers.events_of(int(key)), [0.0, 0.0, 0])
         totals[0] += float(charge_uc[key])
         totals[1] += float(duration_s[key])
+        totals[2] += int(segment_count[key])
 
     states, events, warnings = [], [], []
     attributed_uc = 0.0
     for state, by_events in sorted(groups.items()):
-        quiet_charge, quiet_duration = by_events.get((), (0.0, 0.0))
-        state_duration = sum(duration for _, duration in by_events.values())
+        quiet_charge, quiet_duration, _ = by_events.get((), (0.0, 0.0, 0))
+        state_duration = sum(duration for _, duration, _ in by_events.values())
         if quiet_duration:
             background_ua = quiet_charge / quiet_duration
             background_uc = background_ua * state_duration
@@ -125,7 +149,7 @@ def _attribute(charge_uc: np.ndarray, duration_s: np.ndarray, markers: MarkerMap
                 "background_charge_uc": background_uc,
             }
         )
-        for active, (charge, duration) in sorted(by_events.items()):
+        for active, (charge, duration, segments) in sorted(by_events.items()):
             if not active:
                 continue
             incremental = None if background_ua is None else charge - background_ua * duration
@@ -136,6 +160,7 @@ def _attribute(charge_uc: np.ndarray, duration_s: np.ndarray, markers: MarkerMap
                     "events": list(active),
                     "duration_s": duration,
                     "incremental_charge_uc": incremental,
+                    "segments": segments,
                 }
             )
 

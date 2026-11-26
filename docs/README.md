@@ -9,6 +9,7 @@ Technical documentation and specifications for PocketPet.
 
 - [BLE protocol](ble-protocol.md) — Provisional GATT service, characteristics, and advertising behavior of the Zephyr application.
 - [PPK2 logic markers](ppk2-markers.md) — Provisional state and event lines the firmware drives for charge attribution, with the bench wiring on the DK.
+- [Bench analysis](bench-analysis.md) — Record trial boundaries, score physical responses, check a reference load and project daily charge.
 
 ## Planned Specifications
 

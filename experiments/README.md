@@ -18,6 +18,8 @@ experiments/
 
 ## Measurement & Validation Protocol
 
+The [bench analysis guide](../docs/bench-analysis.md) covers RQ3 and RQ4 marker analysis, physical response trials, precision-load summaries and the 24-hour workload model.
+
 1. **Calibration:** Verify Nordic PPK2 accuracy against 0.1% precision load resistors (100 kΩ, 47 kΩ, 1 kΩ, 100 Ω) before formal runs. Record ambient temperature (`PCT2075`) and supply voltage for every session.
 2. **Isolation:** Measure battery-side current upstream of the `TPS63900` regulator with the SWD/DK debugger physically disconnected and the measurement rig powered separately.
 3. **Physical vs. Bench Capture (RQ1):** Capture real battery-powered desk, graded bag-carry, and labeled-pickup traces to log missed pickups, unnecessary wakes/hour, and interrupt timestamps; replay recorded wake schedules and wake-rate sweeps on the bench with the `BMA400` active.

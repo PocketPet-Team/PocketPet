@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,6 +65,8 @@ class RunManifest:
     pairing: dict[str, str]
     sample_period_s: float | None
     notes: str | None
+    observations: dict[str, Any] = field(default_factory=dict)
+    calibration: dict[str, Any] | None = None
 
 
 def load_manifest(path: Path) -> RunManifest:
@@ -87,6 +90,11 @@ def _parse(raw: dict[str, Any], base_dir: Path) -> RunManifest:
     if period is not None and not (_is_number(period) and period > 0):
         raise ValueError("sample_period_s must be a positive number")
 
+    observations = raw.get("observations", {})
+    if not isinstance(observations, dict) or set(observations) - {"rq3", "rq4", "responses"}:
+        raise ValueError("observations must be an object with rq3, rq4 or responses sections")
+    if any(not isinstance(section, dict) for section in observations.values()):
+        raise ValueError("each observations section must be an object")
     return RunManifest(
         run_id=run_id,
         capture=base_dir / raw["capture"],
@@ -95,6 +103,8 @@ def _parse(raw: dict[str, Any], base_dir: Path) -> RunManifest:
         pairing=pairing,
         sample_period_s=period,
         notes=raw.get("notes"),
+        observations=observations,
+        calibration=raw.get("calibration"),
     )
 
 
@@ -135,4 +145,4 @@ def parse_markers(markers: dict[str, Any]) -> MarkerMap:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
