@@ -1,6 +1,6 @@
 # Firmware
 
-> **Status:** The portable pet state machine, the advertising policy, and their host replays are available. A first Zephyr application for the nRF52840 DK builds but has not run on hardware yet.
+> **Status:** The portable pet state machine, the advertising policy, the sync policy, and their host replays are available. A first Zephyr application for the nRF52840 DK builds but has not run on hardware yet.
 
 ## Run on macOS
 
@@ -12,6 +12,7 @@ cmake --build build/pet-host
 ctest --test-dir build/pet-host --output-on-failure
 ./build/pet-host/pet_replay
 ./build/pet-host/adv_replay
+./build/pet-host/sync_replay
 ```
 
 CI runs the same build and tests on Linux and macOS with strict warnings, AddressSanitizer, and UndefinedBehaviorSanitizer.
@@ -38,6 +39,20 @@ The replay connects at time zero and advances the simulated clock by 30 minutes.
   ```
 
   The counts ignore the random 0 to 10 ms delay a controller adds to each event, so they are upper bounds. They count radio events only. Charge per event and reconnection time must be measured on the device.
+
+### Sync policy
+
+- [`core/sync_policy.h`](core/sync_policy.h) decides when routine state updates go out over the link (RQ4). [`core/sync_policy.c`](core/sync_policy.c) implements it in C11 using only the standard library.
+- An update may be held for up to a configured time so that later updates share its transfer. A hold of zero sends every update at once, which is the unbatched baseline, so both configurations of a matched pair run the same code.
+- While a peer can receive, no update waits longer than the hold. The wait is measured from the oldest pending update, and updates that arrive without a peer go out once one can receive them.
+- A Find exchange uses the radio anyway, so the caller can report it and any held update goes out with it. Button and Find handling never wait on the policy.
+- `sync_replay` counts the transfers a day of periodic updates needs with and without a hold. Run it without arguments for an example, or pass your own values:
+
+  ```sh
+  ./build/pet-host/sync_replay UPDATE_PERIOD_S MAX_HOLD_S DURATION_S [FIND_PERIOD_S]
+  ```
+
+  With updates every 300 s for a day, a 900 s hold needs 72 transfers where sending at once needs 288. Adding a Find every 2000 s raises that to 86, of which 43 share a Find exchange and 43 go out alone. These are counts of transfers. What a transfer costs, and whether sharing one with a Find exchange saves charge, must be measured on the device.
 
 ### Marker layout
 
@@ -66,14 +81,14 @@ The replay connects at time zero and advances the simulated clock by 30 minutes.
 
 - The DK's Button 1 is the pet button. LED1 toggles on each display refresh and LED2 lights for 500 ms on a Find request. They stand in for the SHARP display and the DRV2605L until those drivers exist.
 - The tag advertises as `PocketPet` and follows the advertising policy: fast after boot or link loss, slow after the configured time. Advertising restarts after the stack releases the old connection.
-- A routine state update is queued every 300 s and sent as a notification once a peer subscribes. An update queued while nobody is subscribed waits for the next subscription.
+- A routine state update becomes due every 300 s. The sync policy decides when it is sent as a notification: at once by default, or after a hold of up to `CONFIG_POCKETPET_SYNC_MAX_HOLD_MS`, in which case a Find request sends it early. An update that becomes due while nobody is subscribed waits for the next subscription.
 - The log reports the running LF clock source after Bluetooth starts, and the connection interval, latency, and supervision timeout on connection and on every parameter update.
 - The GATT service is described in [`docs/ble-protocol.md`](../docs/ble-protocol.md). No characteristic requires pairing yet, so any nearby central can read the mood and trigger Find.
 - Five GPIO lines mark the operating state and the button, haptic, and transfer events for a PPK2. On the DK they are P1.03 to P1.07, a provisional bench assignment. [`docs/ppk2-markers.md`](../docs/ppk2-markers.md) has the layout and wiring. Set `CONFIG_POCKETPET_PPK2_MARKERS=n` to build without them.
 
 All inputs (button interrupt, Bluetooth callbacks, timers) go through one queue and are applied to the state machines from a single work item, so the cores see events in order and never run concurrently.
 
-The advertising intervals, the switch time, the routine sync period, and the Find indication length are Kconfig options in [`app/Kconfig`](app/Kconfig). Their defaults make the application run; they are not pilot values.
+The advertising intervals, the switch time, the routine sync period, the sync hold, and the Find indication length are Kconfig options in [`app/Kconfig`](app/Kconfig). Their defaults make the application run; they are not pilot values.
 
 ### Build
 
@@ -101,7 +116,7 @@ west build -b nrf52840dk/nrf52840 -d <rc-build-dir> <repo>/firmware/app -- -DEXT
 
 With NCS v3.4.2 this image sets `CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y` and calibrates every 4000 ms (`CONFIG_MPSL_CALIBRATION_PERIOD`). The default image uses the 32.768 kHz crystal. Check `zephyr/.config` in the build directory to confirm which one a build used.
 
-Both images build without warnings. With markers enabled, the default image uses 136,128 B of flash and 25,896 B of RAM.
+Both images build without warnings. With markers enabled, the default image uses 136,804 B of flash and 25,960 B of RAM.
 
 CI builds the default image, the RC clock image, and an image without PPK2 markers on every change to `app/`, `core/`, or the manifest, with compiler warnings treated as errors. It runs in Nordic's toolchain container and fetches the SDK through [`west.yml`](west.yml), which pins the SDK version and lists only the repositories the application uses:
 
