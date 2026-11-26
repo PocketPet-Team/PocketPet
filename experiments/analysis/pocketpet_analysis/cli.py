@@ -21,6 +21,7 @@ from pocketpet_analysis.breakeven import break_even
 from pocketpet_analysis.compare import compare_runs
 from pocketpet_analysis.manifest import load_manifest
 from pocketpet_analysis.ppk2 import DEFAULT_CHUNK_ROWS, read_capture
+from pocketpet_analysis.runplan import load_definition, write_run_files
 from pocketpet_analysis.stats import DEFAULT_RESAMPLES, success_rate_ci
 from pocketpet_analysis.synthetic import write_synthetic_pairs, write_synthetic_sweep
 
@@ -182,6 +183,10 @@ def _parser() -> argparse.ArgumentParser:
     command.add_argument("--pairs", type=int, default=10)
     command.add_argument("--seed", type=int, required=True)
 
+    command = add("prepare", "write the run order and manifest skeletons for an experiment")
+    command.add_argument("definition", type=Path, help="experiment definition (JSON)")
+    command.add_argument("out_dir", type=Path, help="where the captures will be stored")
+
     command = add("budget", "average-current budget for a cell capacity and runtime target")
     command.add_argument("--capacity-mah", type=float, required=True)
     command.add_argument("--days", type=float, default=60.0)
@@ -254,6 +259,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.output.write_text(text, encoding="utf-8")
             else:
                 sys.stdout.write(text)
+        elif args.command == "prepare":
+            for path in write_run_files(load_definition(args.definition), args.out_dir):
+                print(path)
         elif args.command == "budget":
             summary = _read_json(args.summary) if args.summary else None
             _emit(budget(args.capacity_mah, args.days, summary), args.output)

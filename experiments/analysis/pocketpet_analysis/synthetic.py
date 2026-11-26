@@ -134,6 +134,26 @@ def write_synthetic_pairs(
     return manifests
 
 
+def sweep_run(
+    rng: np.random.Generator, schedule: Schedule, *, interrupt: bool, sample_rate_hz: int = 20
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return timestamps (ms), currents (uA) and the packed logic byte for one sweep run.
+
+    The run gets its own small current offset, so pairs differ the way repeated runs do.
+    Only the interrupt policy wakes on a trigger, and it marks each wake on D0.
+    """
+    count = round(schedule.duration_ms / 1000 * sample_rate_hz)
+    time_ms = np.arange(count) * (1000.0 / sample_rate_hz)
+    starts = np.asarray(schedule.times_ms, dtype=float)[:, None]
+    awake = ((time_ms >= starts) & (time_ms < starts + WAKE_S * 1000.0)).any(axis=0)
+
+    current = np.full(count, INTERRUPT_IDLE_UA if interrupt else POLLING_UA)
+    current = current + rng.normal(0.0, RUN_OFFSET_UA)
+    current = current + rng.normal(0.0, NOISE_UA, count)
+    bits = (awake & interrupt).astype(np.uint8)
+    return time_ms, current + bits * WAKE_UA, bits
+
+
 def write_synthetic_sweep(
     out_dir: Path,
     schedules: list[Schedule],
@@ -142,28 +162,19 @@ def write_synthetic_sweep(
     seed: int,
     sample_rate_hz: int = 20,
 ) -> list[Path]:
-    """Write ``pairs`` polling-interrupt pairs per schedule; return the manifest paths.
-
-    Each run gets its own small current offset, so pairs differ the way repeated runs do.
-    """
+    """Write ``pairs`` polling-interrupt pairs per schedule; return the manifest paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     manifests = []
     for schedule in schedules:
-        count = round(schedule.duration_ms / 1000 * sample_rate_hz)
-        time_ms = np.arange(count) * (1000.0 / sample_rate_hz)
-        starts = np.asarray(schedule.times_ms, dtype=float)[:, None]
-        awake = ((time_ms >= starts) & (time_ms < starts + WAKE_S * 1000.0)).any(axis=0)
         for pair in range(1, pairs + 1):
             for role in ("baseline", "candidate"):
                 interrupt = role == "candidate"
-                current = np.full(count, INTERRUPT_IDLE_UA if interrupt else POLLING_UA)
-                current = current + rng.normal(0.0, RUN_OFFSET_UA)
-                current = current + rng.normal(0.0, NOISE_UA, count)
-                # Only the interrupt policy wakes on a trigger, and marks it on D0.
-                bits = (awake & interrupt).astype(np.uint8)
+                samples = sweep_run(
+                    rng, schedule, interrupt=interrupt, sample_rate_hz=sample_rate_hz
+                )
                 run_id = f"{schedule.schedule_id}-p{pair:02d}-{role}"
-                write_capture(out_dir / f"{run_id}.csv", time_ms, current + bits * WAKE_UA, bits)
+                write_capture(out_dir / f"{run_id}.csv", *samples)
                 manifest = {
                     "run_id": run_id,
                     "capture": f"{run_id}.csv",

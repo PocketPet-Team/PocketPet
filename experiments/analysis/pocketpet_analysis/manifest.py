@@ -90,15 +90,16 @@ def _parse(raw: dict[str, Any], base_dir: Path) -> RunManifest:
     return RunManifest(
         run_id=run_id,
         capture=base_dir / raw["capture"],
-        metadata=_parse_metadata(raw["metadata"]),
-        markers=_parse_markers(raw.get("markers", {})),
+        metadata=parse_metadata(raw["metadata"]),
+        markers=parse_markers(raw.get("markers", {})),
         pairing=pairing,
         sample_period_s=period,
         notes=raw.get("notes"),
     )
 
 
-def _parse_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+def parse_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Check a manifest's ``metadata`` block and return a copy of it."""
     missing = [name for name in REQUIRED_METADATA if name not in metadata]
     if missing:
         raise ValueError(f"metadata is missing {missing}")
@@ -115,7 +116,8 @@ def _parse_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return dict(metadata)
 
 
-def _parse_markers(markers: dict[str, Any]) -> MarkerMap:
+def parse_markers(markers: dict[str, Any]) -> MarkerMap:
+    """Check a manifest's ``markers`` block and return its channel map."""
     state_channels = tuple(markers.get("state_channels", ()))
     events = {int(channel): name for channel, name in markers.get("events", {}).items()}
     state_names = {int(code): name for code, name in markers.get("states", {}).items()}
