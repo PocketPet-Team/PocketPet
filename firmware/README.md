@@ -1,6 +1,6 @@
 # Firmware
 
-> **Status:** The portable pet state machine, the advertising policy, and their host replays are available. The nRF Connect SDK / Zephyr application is planned.
+> **Status:** The portable pet state machine, the advertising policy, and their host replays are available. A first Zephyr application for the nRF52840 DK builds but has not run on hardware yet.
 
 ## Run on macOS
 
@@ -55,8 +55,50 @@ The replay connects at time zero and advances the simulated clock by 30 minutes.
 | **Haptics (`DRV2605L`)** | I2C haptic trigger for nearby find alerts and feedback patterns | RQ3, RQ4 |
 | **Event Markers & Replay Hooks** | Deterministic workload execution and logic-pin toggles synchronized to Nordic PPK2 captures | All |
 
-## Build & Flashing
+## Zephyr application
 
-Build instructions (`west build` / `west flash`), Devicetree overlays, and pinout mappings will be added here once the Zephyr / nRF Connect SDK project is initialized.
+[`app/`](app/) runs both portable cores on the nRF52840 DK with nRF Connect SDK v3.4.2.
+
+- The DK's Button 1 is the pet button. LED1 toggles on each display refresh and LED2 lights for 500 ms on a Find request. They stand in for the SHARP display and the DRV2605L until those drivers exist.
+- The tag advertises as `PocketPet` and follows the advertising policy: fast after boot or link loss, slow after the configured time. Advertising restarts after the stack releases the old connection.
+- A routine state update is queued every 300 s and sent as a notification once a peer subscribes. An update queued while nobody is subscribed waits for the next subscription.
+- The log reports the running LF clock source after Bluetooth starts, and the connection interval, latency, and supervision timeout on connection and on every parameter update.
+- The GATT service is described in [`docs/ble-protocol.md`](../docs/ble-protocol.md). No characteristic requires pairing yet, so any nearby central can read the mood and trigger Find.
+
+All inputs (button interrupt, Bluetooth callbacks, timers) go through one queue and are applied to the state machines from a single work item, so the cores see events in order and never run concurrently.
+
+The advertising intervals, the switch time, the routine sync period, and the Find indication length are Kconfig options in [`app/Kconfig`](app/Kconfig). Their defaults make the application run; they are not pilot values.
+
+### Build
+
+Install the SDK and toolchain with [nRF Util](https://www.nordicsemi.com/Products/Development-tools/nRF-Util):
+
+```sh
+nrfutil install sdk-manager
+nrfutil sdk-manager install v3.4.2
+```
+
+Then open the toolchain environment and build from the SDK directory (`C:\ncs\v3.4.2` on Windows, `~/ncs/v3.4.2` on Linux, `/opt/nordic/ncs/v3.4.2` on macOS):
+
+```sh
+nrfutil sdk-manager toolchain launch --ncs-version v3.4.2 --shell
+west build -b nrf52840dk/nrf52840 -d <build-dir> <repo>/firmware/app
+```
+
+Zephyr does not support spaces in source or build paths. If the clone path contains one, build through a link without spaces (a directory junction on Windows, a symlink elsewhere).
+
+For the RQ2 comparison, build a second image that runs the LF clock from the calibrated RC oscillator:
+
+```sh
+west build -b nrf52840dk/nrf52840 -d <rc-build-dir> <repo>/firmware/app -- -DEXTRA_CONF_FILE=clock-rc.conf
+```
+
+With NCS v3.4.2 this image sets `CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y` and calibrates every 4000 ms (`CONFIG_MPSL_CALIBRATION_PERIOD`). The default image uses the 32.768 kHz crystal. Check `zephyr/.config` in the build directory to confirm which one a build used.
+
+Both images build without warnings. The default image uses 135,564 B of flash and 25,896 B of RAM.
+
+### Flash
+
+`west flash -d <build-dir>` is the standard command for the DK, but it has not been run against a board yet. It needs SEGGER J-Link installed. Logging over the DK's UART is on for bring-up and adds current draw, so disable `CONFIG_LOG` before power measurements.
 
 See [../README.md](../README.md) and [../docs/architecture.md](../docs/architecture.md) for system targets and measurement constraints.
