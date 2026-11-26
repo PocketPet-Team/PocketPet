@@ -20,7 +20,9 @@ All UUIDs share one random base and differ in the first 32 bits.
 
 A read of State returns the mood as of the last event the tag processed. Mood decays with time, so the value can be older than the read.
 
-A notification on State is a routine update. The tag queues one every routine sync period and sends it once a central has enabled notifications. Updates that queue up while no central is subscribed collapse into one.
+A notification on State is a routine update. One becomes due every routine sync period and is sent once a central has enabled notifications. Updates that become due while no central is subscribed collapse into one.
+
+The tag can hold a routine update for a configured time so that later updates share its notification. The hold is zero by default, which sends each update when it is due. With a hold, the central sees mood changes up to that much later, and a Find write makes the tag send a held update early. The policy is in [`firmware/core/sync_policy.h`](../firmware/core/sync_policy.h).
 
 Writing `0x01` to Find starts the Find indication if the link is up. Any other length or value is rejected with an ATT error: Invalid Attribute Value Length for a length other than 1, Value Not Allowed for another byte, and Invalid Offset for a non-zero offset.
 

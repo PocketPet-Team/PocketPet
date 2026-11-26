@@ -14,6 +14,9 @@ target_include_directories(adv_policy PUBLIC ../core)
 add_library(marker STATIC ../core/marker.c)
 target_include_directories(marker PUBLIC ../core)
 
+add_library(sync_policy STATIC ../core/sync_policy.c)
+target_include_directories(sync_policy PUBLIC ../core)
+
 add_executable(pet_replay replay.c)
 target_link_libraries(pet_replay PRIVATE pet_state)
 
@@ -22,6 +25,9 @@ target_link_libraries(adv_replay PRIVATE adv_policy)
 
 add_executable(marker_map marker_map.c)
 target_link_libraries(marker_map PRIVATE marker)
+
+add_executable(sync_replay sync_replay.c)
+target_link_libraries(sync_replay PRIVATE sync_policy)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -44,4 +50,9 @@ if(BUILD_TESTING)
             -DTOOL=$<TARGET_FILE:marker_map>
             -DEXPECTED=${CMAKE_CURRENT_SOURCE_DIR}/../app/ppk2-markers.json
             -P ${CMAKE_CURRENT_SOURCE_DIR}/check_marker_map.cmake)
+
+    add_executable(sync_policy_test sync_policy_test.c)
+    target_link_libraries(sync_policy_test PRIVATE sync_policy)
+    add_test(NAME sync_policy_test COMMAND sync_policy_test)
+    add_test(NAME sync_replay COMMAND sync_replay)
 endif()
