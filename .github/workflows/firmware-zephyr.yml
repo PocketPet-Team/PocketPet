@@ -1,0 +1,60 @@
+name: firmware-zephyr
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - firmware/app/**
+      - firmware/core/**
+      - firmware/west.yml
+      - .github/workflows/firmware-zephyr.yml
+  pull_request:
+    paths:
+      - firmware/app/**
+      - firmware/core/**
+      - firmware/west.yml
+      - .github/workflows/firmware-zephyr.yml
+
+permissions:
+  contents: read
+
+env:
+  BOARD: nrf52840dk/nrf52840
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # Nordic's toolchain image for the SDK version pinned in firmware/west.yml.
+    container: ghcr.io/nrfconnect/sdk-nrf-toolchain:v3.4.2
+    defaults:
+      run:
+        # The image sets up the toolchain environment only in Bash sessions.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: pocketpet
+      - name: Fetch the SDK
+        run: |
+          west init -l --mf firmware/west.yml pocketpet
+          west update --narrow -o=--depth=1
+      - name: Build the default image
+        run: >
+          west build -b "$BOARD" -d build/default pocketpet/firmware/app --
+          -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y
+      - name: Build the RC clock image
+        run: >
+          west build -b "$BOARD" -d build/clock-rc pocketpet/firmware/app --
+          -DEXTRA_CONF_FILE=clock-rc.conf
+          -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y
+      - name: Build without PPK2 markers
+        run: >
+          west build -b "$BOARD" -d build/no-markers pocketpet/firmware/app --
+          -DCONFIG_POCKETPET_PPK2_MARKERS=n
+          -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y
+      - name: Check each image has the intended configuration
+        run: |
+          grep -x 'CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL=y' build/default/app/zephyr/.config
+          grep -x 'CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y' build/clock-rc/app/zephyr/.config
+          grep -x 'CONFIG_POCKETPET_PPK2_MARKERS=y' build/default/app/zephyr/.config
+          grep -x '# CONFIG_POCKETPET_PPK2_MARKERS is not set' build/no-markers/app/zephyr/.config
