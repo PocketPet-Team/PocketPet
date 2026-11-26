@@ -4,7 +4,7 @@ Instructions for AI coding and documentation assistants working inside the publi
 
 ## 1. Repository Status & Truthfulness Rules
 
-- **Current state:** Early scaffold only. No firmware build configuration (`CMakeLists.txt`, `west.yml`, `prj.conf`), KiCad design files, Swift/Xcode project, or measured PPK2 datasets are committed yet.
+- **Current state:** The portable C pet state machine, advertising policy, and sync policy build and run through the host CMake project in `firmware/host/`. The Zephyr application in `firmware/app/` builds for the nRF52840 DK with NCS v3.4.2 but has not run on hardware. The KiCad design, Swift/Xcode project, and PPK2 data collection are planned.
 - **Never fabricate implementation details:** Do not invent file paths, pin numbers, GPIO assignments, build/flash commands, test outputs, measured currents, power savings, statistical significance, or completed prototype milestones.
 - **Separate plans from measurements:** Clearly label target budgets, planned hardware revisions, and pilot parameters as *planned* or *pending* until actual code, hardware schematics, or committed experiment outputs verify them.
 

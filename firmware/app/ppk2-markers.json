@@ -1,0 +1,14 @@
+{
+  "state_channels": [0, 1],
+  "states": {
+    "0": "idle",
+    "1": "adv_fast",
+    "2": "adv_slow",
+    "3": "connected"
+  },
+  "events": {
+    "2": "button",
+    "3": "haptic",
+    "4": "transfer"
+  }
+}

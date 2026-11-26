@@ -1,0 +1,16 @@
+description: |
+  GPIO lines that label a power capture on a Nordic PPK2's logic port.
+
+  The lines carry the layout defined in firmware/core/marker.h: the operating
+  state as a binary code on the first lines, then one line per event.
+
+compatible: "pocketpet,ppk2-markers"
+
+properties:
+  gpios:
+    type: phandle-array
+    required: true
+    description: |
+      Marker lines in channel order, starting with the line wired to PPK2
+      logic channel D0. They must be SoC GPIOs, because the firmware drives
+      them from interrupt context.

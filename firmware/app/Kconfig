@@ -1,0 +1,61 @@
+menu "PocketPet"
+
+# The defaults below make the application run. They are not pilot values; RQ3
+# fixes the intervals and the switch time during pilot runs.
+
+config POCKETPET_ADV_FAST_INTERVAL
+	int "Fast advertising interval (0.625 ms units)"
+	range 32 16384
+	default 160
+	help
+	  Interval used right after the link is lost. 160 units is 100 ms.
+
+config POCKETPET_ADV_SLOW_INTERVAL
+	int "Slow advertising interval (0.625 ms units)"
+	range 32 16384
+	default 1600
+	help
+	  Interval used after the fast period. Set it equal to
+	  POCKETPET_ADV_FAST_INTERVAL for the fixed-rate baseline. 1600 units
+	  is 1 s.
+
+config POCKETPET_ADV_FAST_DURATION_MS
+	int "Time at the fast interval before switching (ms)"
+	range 1 4294967
+	default 30000
+
+config POCKETPET_ROUTINE_SYNC_PERIOD_S
+	int "Routine state sync period (s)"
+	range 1 86400
+	default 300
+	help
+	  How often a routine state update becomes due.
+
+config POCKETPET_SYNC_MAX_HOLD_MS
+	int "Longest a routine update may wait to share a transfer (ms)"
+	range 0 86400000
+	default 0
+	help
+	  0 sends every routine update when it is due, which is the unbatched
+	  baseline for RQ4. A larger value holds an update for up to that long
+	  so later updates, or a Find exchange, share its transfer. RQ4 sets
+	  the freshness limit this value must respect.
+
+config POCKETPET_FIND_INDICATION_MS
+	int "Find indication length (ms)"
+	default 500
+	help
+	  How long the stand-in for the haptic motor stays on.
+
+config POCKETPET_PPK2_MARKERS
+	bool "Drive PPK2 logic markers"
+	default y
+	depends on DT_HAS_POCKETPET_PPK2_MARKERS_ENABLED
+	help
+	  Drive the operating state and event lines described in
+	  docs/ppk2-markers.md so a PPK2 capture can be split by state. Needs
+	  a devicetree node with the pocketpet,ppk2-markers compatible.
+
+endmenu
+
+source "Kconfig.zephyr"
