@@ -1,0 +1,33 @@
+name: firmware-host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - firmware/**
+      - .github/workflows/firmware-host.yml
+  pull_request:
+    paths:
+      - firmware/**
+      - .github/workflows/firmware-host.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        run: >
+          cmake -S firmware/host -B build/pet-host
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_FLAGS="-Wall -Wextra -Wpedantic -Werror -fsanitize=address,undefined -fno-sanitize-recover=all"
+      - name: Build
+        run: cmake --build build/pet-host
+      - name: Test
+        run: ctest --test-dir build/pet-host --output-on-failure
