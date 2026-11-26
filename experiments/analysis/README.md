@@ -1,6 +1,6 @@
 # PocketPet analysis
 
-Python tools that turn a Nordic PPK2 capture into a compact charge summary and compare matched baseline and candidate runs.
+Python tools that turn a Nordic PPK2 capture into a compact charge summary, compare matched baseline and candidate runs, and generate the trigger schedules for the RQ1 wake-rate sweep.
 
 > **Status:** The pipeline is tested against synthetic captures only. No PPK2 capture from PocketPet hardware has been processed yet, and the logic-marker pin assignment is still to be decided with the firmware and bench rig.
 
@@ -92,6 +92,77 @@ Charge is in microcoulombs (µA·s). `charge_mah` divides by 3.6 × 10⁶.
 The output carries `board_revs` and both sets of firmware SHAs. `phase` is `formal-frozen` only when every run is, and `meets_min_pairs` is true from 10 pairs up.
 
 The interval is studentized because the percentile bootstrap is too narrow at this sample size. In a simulation with normal differences and 10 pairs (4000 trials), the percentile interval covered the true mean 90.7% of the time and the bootstrap-t interval 95.0%. With lognormal differences both fell short, at 81% and 92%, so check the within-pair differences for strong skew before quoting an interval.
+
+## Wake-rate sweep and break-even (RQ1)
+
+RQ1 asks at what rate of unwanted wakes the interrupt-driven wake policy stops saving charge over periodic polling. The bench answers it with a sweep: each matched pair runs the polling baseline and the interrupt candidate against the same trigger schedule, and the sweep repeats that at several trigger rates.
+
+### Trigger schedules
+
+A schedule lists when the replay rig fires a wake trigger, in whole milliseconds from the start of a run:
+
+```json
+{
+  "schema": 1,
+  "schedule_id": "wake-sweep-random-3ph-s1",
+  "duration_ms": 3600000,
+  "min_gap_ms": 5000,
+  "source": {"type": "generated", "pattern": "random", "seed": 1},
+  "times_ms": [91250, 402117, 610554]
+}
+```
+
+`sweep` writes one schedule per rate:
+
+```sh
+uv run pocketpet-analysis sweep workloads --rates 0 6 12 24 48 --duration-s 3600 --min-gap-ms 5000 --seed 1
+```
+
+The numbers in that command are examples. The rates, the run length, and the gap are pilot parameters that have not been chosen. Each schedule holds exactly `rate × duration` triggers, so a rate that does not give a whole number is refused. `--pattern random` (the default) places them at random and `--pattern periodic` spaces them evenly. Either way no trigger falls within `--min-gap-ms` of another, of the start, or of the end. Set the gap to at least the time the tag needs to finish handling one wake. Include rate 0: it measures the saving the other rates are compared against.
+
+`import-schedule` turns recorded interrupt times into a schedule, so a desk or bag-carry recording can be replayed on the bench:
+
+```sh
+uv run pocketpet-analysis import-schedule bag-walk.csv --schedule-id bag-walk --duration-s 1800 --min-gap-ms 5000 -o workloads/bag-walk.schedule.json
+```
+
+The recording is a CSV with a `time_ms` column, in order, counted from the start of the recording. A trigger closer than the gap to the one kept before it is dropped, and `source.dropped_triggers` records how many were. How the tag will log these timestamps is not designed yet, so this input format is provisional.
+
+A run that replays a schedule names it in the manifest's `workload` field, using the `schedule_id`.
+
+### Try it on synthetic data
+
+```sh
+uv run pocketpet-analysis sweep demo/schedules --rates 0 6 12 24 48 --duration-s 1800 --min-gap-ms 5000 --seed 1
+uv run pocketpet-analysis synth demo/runs --schedules "demo/schedules/*.json" --pairs 10 --seed 1
+uv run pocketpet-analysis summarize "demo/runs/*.json" --output-dir demo/summaries
+uv run pocketpet-analysis breakeven "demo/summaries/*.json" --schedules "demo/schedules/*.json" --seed 1
+```
+
+The synthetic polling run draws 20 µA whatever the triggers do. The synthetic interrupt run idles at 8 µA and adds 3000 µA for 1 s per trigger. These are arbitrary round numbers, chosen so the two policies meet at 14.4 triggers per hour. `breakeven` should report a rate near that, a saving near 12 µA, and about 3000 µC per trigger. Delete `demo/` afterwards.
+
+### What `breakeven` computes
+
+For every pair it takes the difference in mean current, candidate minus baseline, and the trigger rate of the schedule the pair replayed. It fits a straight line through the differences against the rate and reports:
+
+- `saving_at_zero_ua`, the candidate's saving with no triggers (the line's intercept, sign reversed);
+- `charge_per_trigger_uc`, what one trigger costs the candidate (the slope over one hour);
+- `break_even_rate_per_h`, the rate where the line crosses zero;
+- `rates`, the measured mean difference at each rate with its own interval, next to the fitted value.
+
+Each figure has a 95% bootstrap-t interval. Whole pairs are resampled, and only among pairs measured at the same rate, so every resample keeps the sweep's design.
+
+`breakeven` warns when:
+
+- the break-even rate lies outside the measured rates, so it is an extrapolation;
+- the fitted line misses a rate's own interval, which suggests the cost per trigger is not constant (wakes that overlap at high rates would do this);
+- the slope's interval reaches zero. The break-even rate then has no bounded interval and `break_even_ci` is `null`;
+- the saving with no triggers is not distinguishable from zero;
+- a run's length differs from its schedule's by more than 1%.
+
+The trigger rate comes from the schedule, not from the capture. Nothing checks yet that the tag woke once per trigger, because the firmware has no wake marker.
+
+The interval was chosen by simulation, as for `compare`. With five rates, ten pairs per rate, and normal noise, it covered the true break-even rate in 94.3% and 94.9% of 2000 trials at two noise levels. With lognormal noise it covered 92.7%. With three pairs per rate it covered 97.7% at low noise and 93.4% at high noise, and in the high-noise case 3.5% of trials had no bounded interval. A percentile interval covered 85% to 94% in the same designs.
 
 ## Other commands
 

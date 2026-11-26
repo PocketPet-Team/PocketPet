@@ -1,20 +1,20 @@
 # Experiments & Power Analysis
 
-> **Status:** The [analysis pipeline](analysis/README.md) is available and tested on synthetic captures. The replay controller firmware, workload traces, and measured datasets are planned.
+> **Status:** The [analysis pipeline](analysis/README.md) is available and tested on synthetic captures. It can generate wake trigger schedules and compute the RQ1 break-even rate. The replay controller firmware, committed workload traces, and measured datasets are planned.
 
 ## Directory Layout
 
 ```text
 experiments/
 ├── replay-controller/   # Planned: STM32F103 firmware driving LTV-817 optocouplers and LED video markers
-├── workloads/           # Planned: trace definitions (desk, graded bag-carry, pickup, active-use, 24h mixed-use)
+├── workloads/           # Planned: trace definitions (desk, graded bag-carry, pickup, active-use, 24h mixed-use, wake-rate sweep schedules)
 ├── analysis/            # Python package for PPK2 charge integration, event attribution, and 95% CIs
 └── data/                # Planned: compact processed CSV/JSON summaries (data/raw/ is gitignored)
 ```
 
 ## Analysis Pipeline
 
-[`analysis/`](analysis/README.md) reads a Power Profiler CSV export and a run manifest, integrates charge, splits it into per-state background and per-event increments, and compares matched baseline and candidate runs with bootstrap confidence intervals. Its README covers setup, the manifest format, and the checks to run.
+[`analysis/`](analysis/README.md) reads a Power Profiler CSV export and a run manifest, integrates charge, splits it into per-state background and per-event increments, and compares matched baseline and candidate runs with bootstrap confidence intervals. It also writes the trigger schedules for a wake-rate sweep and fits the RQ1 break-even rate from the sweep's runs. Its README covers setup, the manifest and schedule formats, and the checks to run.
 
 ## Measurement & Validation Protocol
 
