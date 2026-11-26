@@ -1,0 +1,29 @@
+# West manifest for building firmware/app without a full nRF Connect SDK
+# install. CI uses it; the SDK version here must match the one named in
+# firmware/README.md.
+#
+#     west init -l --mf firmware/west.yml <clone>
+#     west update --narrow -o=--depth=1
+#
+# The workspace is the directory that contains the clone.
+
+manifest:
+  version: "0.13"
+
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
+
+  projects:
+    - name: nrf
+      remote: ncs
+      repo-path: sdk-nrf
+      revision: v3.4.2
+      import:
+        # Only the SDK repositories the application compiles or links against.
+        # A feature that needs another one fails at configure time; add it here.
+        name-allowlist:
+          - cmsis_6
+          - hal_nordic
+          - nrfxlib
+          - zephyr
