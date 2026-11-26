@@ -103,6 +103,16 @@ With NCS v3.4.2 this image sets `CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y` and calib
 
 Both images build without warnings. With markers enabled, the default image uses 136,128 B of flash and 25,896 B of RAM.
 
+CI builds the default image, the RC clock image, and an image without PPK2 markers on every change to `app/`, `core/`, or the manifest, with compiler warnings treated as errors. It runs in Nordic's toolchain container and fetches the SDK through [`west.yml`](west.yml), which pins the SDK version and lists only the repositories the application uses:
+
+```sh
+west init -l --mf firmware/west.yml <clone>
+west update --narrow -o=--depth=1
+west build -b nrf52840dk/nrf52840 -d build/default <clone>/firmware/app
+```
+
+These commands run from the directory that contains the clone, which becomes the west workspace. They have only been run in the CI container. Keep the SDK version in `west.yml`, in the container tag in [`firmware-zephyr.yml`](../.github/workflows/firmware-zephyr.yml), and in the install command above the same.
+
 ### Flash
 
 `west flash -d <build-dir>` is the standard command for the DK, but it has not been run against a board yet. It needs SEGGER J-Link installed. Logging over the DK's UART is on for bring-up and adds current draw, so disable `CONFIG_LOG` before power measurements.
