@@ -99,6 +99,93 @@ def success_rate_ci(
     }
 
 
+def line_crossing_ci(
+    x: Sequence[float],
+    y: Sequence[float],
+    *,
+    seed: int,
+    resamples: int = DEFAULT_RESAMPLES,
+    confidence: float = 0.95,
+) -> dict[str, Any]:
+    """Fit ``y = intercept + slope * x`` and estimate where the line crosses zero.
+
+    Each ``y`` comes from one matched pair measured at design point ``x``. Resampling
+    keeps the design: pairs are redrawn only among those that share an ``x``. All three
+    intervals are bootstrap-t. ``crossing`` is None unless the fitted slope is positive,
+    and ``crossing_ci`` is None unless the slope's interval lies above zero, because a
+    line that may be flat has no bounded crossing.
+    """
+    points = np.asarray(x, dtype=float)
+    values = np.asarray(y, dtype=float)
+    if points.shape != values.shape or points.ndim != 1:
+        raise ValueError("x and y must be equal-length sequences")
+    levels = np.unique(points)
+    groups = [np.flatnonzero(points == level) for level in levels]
+    if len(groups) < 2:
+        raise ValueError("a line needs at least two distinct x values")
+    if min(group.size for group in groups) < 2:
+        raise ValueError("each x value needs at least two pairs")
+
+    # Both coefficients are weighted sums of y, so their variances follow from the
+    # spread of y inside each group and no common noise level has to be assumed.
+    centered = points - points.mean()
+    slope_weights = centered / (centered**2).sum()
+    intercept_weights = 1.0 / points.size - points.mean() * slope_weights
+
+    def fit(rows: np.ndarray) -> tuple[np.ndarray, ...]:
+        variance = np.empty(rows.shape)
+        for group in groups:
+            variance[..., group] = rows[..., group].var(axis=-1, ddof=1, keepdims=True)
+        intercept, slope = rows @ intercept_weights, rows @ slope_weights
+        intercept_var = variance @ intercept_weights**2
+        slope_var = variance @ slope_weights**2
+        covariance = variance @ (intercept_weights * slope_weights)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            crossing = -intercept / slope
+            # First-order (delta method) standard error of the ratio.
+            crossing_var = intercept_var + crossing**2 * slope_var + 2 * crossing * covariance
+            crossing_error = np.sqrt(np.maximum(crossing_var, 0.0)) / np.abs(slope)
+        return (
+            intercept,
+            np.sqrt(intercept_var),
+            slope,
+            np.sqrt(slope_var),
+            crossing,
+            crossing_error,
+        )
+
+    rng = np.random.default_rng(seed)
+    draws = np.empty((resamples, points.size), dtype=np.intp)
+    for group in groups:
+        draws[:, group] = rng.choice(group, size=(resamples, group.size))
+    estimate = [float(value) for value in fit(values)]
+    drawn = fit(values[draws])
+
+    slope_ci = _t_interval(estimate[2], estimate[3], drawn[2], drawn[3], confidence)
+    rising = drawn[2] > 0.0
+    crossing = estimate[4] if estimate[2] > 0.0 else None
+    crossing_ci = None
+    if crossing is not None and slope_ci[0] > 0.0:
+        crossing_ci = _t_interval(
+            crossing, estimate[5], drawn[4][rising], drawn[5][rising], confidence
+        )
+    return {
+        "points": int(points.size),
+        "levels": [float(level) for level in levels],
+        "intercept": estimate[0],
+        "intercept_ci": _t_interval(estimate[0], estimate[1], drawn[0], drawn[1], confidence),
+        "slope": estimate[2],
+        "slope_ci": slope_ci,
+        "crossing": crossing,
+        "crossing_ci": crossing_ci,
+        "nonpositive_slope_draws": float(1.0 - rising.mean()),
+        "method": "bootstrap-t over whole pairs, resampled within each x",
+        "confidence": confidence,
+        "resamples": resamples,
+        "seed": seed,
+    }
+
+
 def _studentized_interval(
     values: np.ndarray, resampled: np.ndarray, confidence: float
 ) -> list[float]:
@@ -108,14 +195,28 @@ def _studentized_interval(
     its own standard error widens it roughly as a t interval would.
     """
     count = values.size
-    estimate = values.mean()
-    error = values.std(ddof=1) / np.sqrt(count)
+    return _t_interval(
+        values.mean(),
+        values.std(ddof=1) / np.sqrt(count),
+        resampled.mean(axis=1),
+        resampled.std(axis=1, ddof=1) / np.sqrt(count),
+        confidence,
+    )
+
+
+def _t_interval(
+    estimate: float,
+    error: float,
+    drawn_estimates: np.ndarray,
+    drawn_errors: np.ndarray,
+    confidence: float,
+) -> list[float]:
+    """Bootstrap-t interval from an estimate, its standard error, and the same for each draw."""
     if error == 0.0:
         return [float(estimate), float(estimate)]
-    resampled_errors = resampled.std(axis=1, ddof=1) / np.sqrt(count)
     # A draw that repeats one value has zero spread and carries no information about t.
-    usable = resampled_errors > 0.0
-    t_values = (resampled.mean(axis=1)[usable] - estimate) / resampled_errors[usable]
+    usable = drawn_errors > 0.0
+    t_values = (drawn_estimates[usable] - estimate) / drawn_errors[usable]
     tail = (1.0 - confidence) / 2.0
     t_low, t_high = np.quantile(t_values, [tail, 1.0 - tail])
     return [float(estimate - t_high * error), float(estimate - t_low * error)]

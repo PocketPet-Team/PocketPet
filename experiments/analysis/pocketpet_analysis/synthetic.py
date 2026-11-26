@@ -12,6 +12,8 @@ from pathlib import Path
 
 import numpy as np
 
+from pocketpet_analysis.schedule import Schedule
+
 STATE_CHANNELS = [0, 1]
 STATES = {"0": "sleep", "1": "advertising", "2": "connected"}
 EVENTS = {"2": "button", "3": "find"}
@@ -20,6 +22,24 @@ CANDIDATE_ADVERTISING_UA = 25.0
 EVENT_UA = {"button": 4000.0, "find": 30000.0}
 NOISE_UA = 2.0
 SYNTHETIC_NOTE = "Synthetic data for testing the analysis pipeline. Not a measurement."
+
+# Wake-policy sweep model: polling draws a steady current whatever the triggers do, while
+# the interrupt policy idles lower and pays a fixed burst for each trigger.
+POLLING_UA = 20.0
+INTERRUPT_IDLE_UA = 8.0
+WAKE_UA = 3000.0
+WAKE_S = 1.0
+RUN_OFFSET_UA = 0.3
+SWEEP_BREAK_EVEN_PER_H = (POLLING_UA - INTERRUPT_IDLE_UA) * 3600.0 / (WAKE_UA * WAKE_S)
+SWEEP_METADATA = {
+    "board_rev": "synthetic",
+    "firmware_sha": "0000000",
+    "supply_v": 3.7,
+    "ambient_temp_c": 25.0,
+    "phone_model": "none",
+    "os_version": "none",
+    "phase": "pilot",
+}
 
 
 def synthetic_run(
@@ -111,4 +131,53 @@ def write_synthetic_pairs(
             manifest_path = out_dir / f"{run_id}.json"
             manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             manifests.append(manifest_path)
+    return manifests
+
+
+def write_synthetic_sweep(
+    out_dir: Path,
+    schedules: list[Schedule],
+    *,
+    pairs: int,
+    seed: int,
+    sample_rate_hz: int = 20,
+) -> list[Path]:
+    """Write ``pairs`` polling-interrupt pairs per schedule; return the manifest paths.
+
+    Each run gets its own small current offset, so pairs differ the way repeated runs do.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(seed)
+    manifests = []
+    for schedule in schedules:
+        count = round(schedule.duration_ms / 1000 * sample_rate_hz)
+        time_ms = np.arange(count) * (1000.0 / sample_rate_hz)
+        starts = np.asarray(schedule.times_ms, dtype=float)[:, None]
+        awake = ((time_ms >= starts) & (time_ms < starts + WAKE_S * 1000.0)).any(axis=0)
+        for pair in range(1, pairs + 1):
+            for role in ("baseline", "candidate"):
+                interrupt = role == "candidate"
+                current = np.full(count, INTERRUPT_IDLE_UA if interrupt else POLLING_UA)
+                current = current + rng.normal(0.0, RUN_OFFSET_UA)
+                current = current + rng.normal(0.0, NOISE_UA, count)
+                # Only the interrupt policy wakes on a trigger, and marks it on D0.
+                bits = (awake & interrupt).astype(np.uint8)
+                run_id = f"{schedule.schedule_id}-p{pair:02d}-{role}"
+                write_capture(out_dir / f"{run_id}.csv", time_ms, current + bits * WAKE_UA, bits)
+                manifest = {
+                    "run_id": run_id,
+                    "capture": f"{run_id}.csv",
+                    "notes": SYNTHETIC_NOTE,
+                    "rq": "synthetic",
+                    "condition": schedule.schedule_id,
+                    "workload": schedule.schedule_id,
+                    "pair_id": f"p{pair:02d}",
+                    "role": role,
+                    "variant": "interrupt" if interrupt else "polling",
+                    "metadata": SWEEP_METADATA,
+                    "markers": {"events": {"0": "wake"}},
+                }
+                manifest_path = out_dir / f"{run_id}.json"
+                manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+                manifests.append(manifest_path)
     return manifests
