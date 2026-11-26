@@ -91,10 +91,26 @@ void pet_service_set_mood(uint8_t mood)
     atomic_set(&stored_mood, mood);
 }
 
+static void state_notification_sent(struct bt_conn *conn, void *user_data)
+{
+    ARG_UNUSED(conn);
+    ARG_UNUSED(user_data);
+
+    if (service_callbacks != NULL && service_callbacks->state_sent != NULL) {
+        service_callbacks->state_sent();
+    }
+}
+
 int pet_service_notify_state(void)
 {
     uint8_t value[2];
+    struct bt_gatt_notify_params params = {
+        .attr = &pet_service.attrs[STATE_VALUE_ATTR],
+        .data = value,
+        .len = sizeof(value),
+        .func = state_notification_sent,
+    };
 
     encode_state(value);
-    return bt_gatt_notify(NULL, &pet_service.attrs[STATE_VALUE_ATTR], value, sizeof(value));
+    return bt_gatt_notify_cb(NULL, &params);
 }

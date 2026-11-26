@@ -11,11 +11,17 @@ target_include_directories(pet_state PUBLIC ../core)
 add_library(adv_policy STATIC ../core/adv_policy.c)
 target_include_directories(adv_policy PUBLIC ../core)
 
+add_library(marker STATIC ../core/marker.c)
+target_include_directories(marker PUBLIC ../core)
+
 add_executable(pet_replay replay.c)
 target_link_libraries(pet_replay PRIVATE pet_state)
 
 add_executable(adv_replay adv_replay.c)
 target_link_libraries(adv_replay PRIVATE adv_policy)
+
+add_executable(marker_map marker_map.c)
+target_link_libraries(marker_map PRIVATE marker)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -28,4 +34,14 @@ if(BUILD_TESTING)
     target_link_libraries(adv_policy_test PRIVATE adv_policy)
     add_test(NAME adv_policy_test COMMAND adv_policy_test)
     add_test(NAME adv_replay COMMAND adv_replay)
+
+    add_executable(marker_test marker_test.c)
+    target_link_libraries(marker_test PRIVATE marker)
+    add_test(NAME marker_test COMMAND marker_test)
+    # The committed manifest fragment must match what the firmware drives.
+    add_test(NAME marker_map_is_current
+        COMMAND ${CMAKE_COMMAND}
+            -DTOOL=$<TARGET_FILE:marker_map>
+            -DEXPECTED=${CMAKE_CURRENT_SOURCE_DIR}/../app/ppk2-markers.json
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/check_marker_map.cmake)
 endif()

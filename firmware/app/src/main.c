@@ -5,7 +5,8 @@
  * the portable state machines from one work item, so pet_step() and
  * adv_policy_step() always see events in order and never run concurrently.
  * The board's LED1 stands in for the display and LED2 for the haptic motor
- * until those drivers exist.
+ * until those drivers exist. The same work item keeps the PPK2 marker lines in
+ * step with the state machines.
  */
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -18,6 +19,8 @@
 #include <hal/nrf_clock.h>
 
 #include "adv_policy.h"
+#include "marker.h"
+#include "markers.h"
 #include "pet_service.h"
 #include "pet_state.h"
 
@@ -74,16 +77,17 @@ static K_WORK_DELAYABLE_DEFINE(switch_timer, switch_timer_expired);
 static K_WORK_DELAYABLE_DEFINE(routine_sync_timer, routine_sync_due);
 static K_WORK_DELAYABLE_DEFINE(find_indication_timer, find_indication_done);
 
-/* Safe from interrupts and any thread. */
-static void queue_event(enum app_event_source source, uint8_t code)
+/* Safe from interrupts and any thread. Returns false if the event was dropped. */
+static bool queue_event(enum app_event_source source, uint8_t code)
 {
     const struct app_event event = {.source = source, .code = code};
 
     if (k_msgq_put(&event_queue, &event, K_NO_WAIT) != 0) {
         LOG_ERR("Event queue full, dropped source %u code %u", source, code);
-        return;
+        return false;
     }
     k_work_submit(&event_work);
+    return true;
 }
 
 static void start_advertising(uint16_t interval_units)
@@ -124,14 +128,18 @@ static void apply_pet_action(enum pet_action action)
         LOG_INF("Display refresh, mood %u", pet.mood);
         break;
     case PET_ACTION_START_HAPTIC:
+        markers_set_event(MARKER_EVENT_HAPTIC, true);
         (void)gpio_pin_set_dt(&haptic_led, 1);
         (void)k_work_reschedule(&find_indication_timer,
                                 K_MSEC(CONFIG_POCKETPET_FIND_INDICATION_MS));
         LOG_INF("Find indication");
         break;
     case PET_ACTION_SEND_STATE: {
+        markers_set_event(MARKER_EVENT_TRANSFER, true);
         const int err = pet_service_notify_state();
         if (err != 0) {
+            // Nothing was queued, so state_sent() will not end the marker.
+            markers_set_event(MARKER_EVENT_TRANSFER, false);
             LOG_WRN("State notification failed (%d)", err);
         }
         break;
@@ -139,6 +147,23 @@ static void apply_pet_action(enum pet_action action)
     case PET_ACTION_NONE:
     default:
         break;
+    }
+}
+
+static void process_pet_event(enum pet_event event, uint64_t now_ms)
+{
+    // Keep a routine update pending until a peer can receive it.
+    if (event == PET_EVENT_FLUSH_ROUTINE_SYNC && !atomic_get(&notifications_enabled)) {
+        return;
+    }
+    enum pet_action action;
+    if (pet_step(&pet, event, now_ms, &action)) {
+        pet_service_set_mood(pet.mood);
+        apply_pet_action(action);
+    }
+    if (event == PET_EVENT_BUTTON) {
+        // Raised in button_pressed(); the press is handled once its action is applied.
+        markers_set_event(MARKER_EVENT_BUTTON, false);
     }
 }
 
@@ -156,18 +181,11 @@ static void process_events(struct k_work *work)
             if (adv_policy_step(&advertising, (enum adv_event)event.code, now_ms, &action)) {
                 apply_adv_action(&action, now_ms);
             }
-            continue;
+        } else {
+            process_pet_event((enum pet_event)event.code, now_ms);
         }
-
-        // Keep a routine update pending until a peer can receive it.
-        if (event.code == PET_EVENT_FLUSH_ROUTINE_SYNC && !atomic_get(&notifications_enabled)) {
-            continue;
-        }
-        enum pet_action action;
-        if (pet_step(&pet, (enum pet_event)event.code, now_ms, &action)) {
-            pet_service_set_mood(pet.mood);
-            apply_pet_action(action);
-        }
+        // After the action, so the state line changes once advertising has restarted.
+        markers_set_state(marker_state_for(pet.connected, advertising.phase));
     }
 }
 
@@ -189,6 +207,7 @@ static void find_indication_done(struct k_work *work)
 {
     ARG_UNUSED(work);
     (void)gpio_pin_set_dt(&haptic_led, 0);
+    markers_set_event(MARKER_EVENT_HAPTIC, false);
 }
 
 static void button_pressed(const struct device *port, struct gpio_callback *callback,
@@ -205,7 +224,11 @@ static void button_pressed(const struct device *port, struct gpio_callback *call
         return;
     }
     last_press_ms = now_ms;
-    queue_event(SOURCE_PET, PET_EVENT_BUTTON);
+    // Raised here so the marker covers the wait for the work item as well.
+    markers_set_event(MARKER_EVENT_BUTTON, true);
+    if (!queue_event(SOURCE_PET, PET_EVENT_BUTTON)) {
+        markers_set_event(MARKER_EVENT_BUTTON, false);
+    }
 }
 
 static void log_connection_parameters(struct bt_conn *conn, const char *when)
@@ -226,8 +249,10 @@ static void connected(struct bt_conn *conn, uint8_t err)
     }
     current_conn = bt_conn_ref(conn);
     log_connection_parameters(conn, "Connected");
-    queue_event(SOURCE_ADV, ADV_EVENT_LINK_CONNECTED);
+    // The pet learns of the link first, so the state marker goes straight from
+    // advertising to connected without passing through idle.
     queue_event(SOURCE_PET, PET_EVENT_LINK_CONNECTED);
+    queue_event(SOURCE_ADV, ADV_EVENT_LINK_CONNECTED);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -235,6 +260,8 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
     ARG_UNUSED(conn);
     LOG_INF("Disconnected (0x%02x)", reason);
     atomic_set(&notifications_enabled, false);
+    // The stack drops an unsent notification without calling state_sent().
+    markers_set_event(MARKER_EVENT_TRANSFER, false);
     if (current_conn != NULL) {
         bt_conn_unref(current_conn);
         current_conn = NULL;
@@ -281,9 +308,15 @@ static void notifications_changed(bool enabled)
     }
 }
 
+static void state_sent(void)
+{
+    markers_set_event(MARKER_EVENT_TRANSFER, false);
+}
+
 static const struct pet_service_callbacks service_callbacks = {
     .find_requested = find_requested,
     .notifications_changed = notifications_changed,
+    .state_sent = state_sent,
 };
 
 static int init_gpio(void)
@@ -350,6 +383,11 @@ int main(void)
     int err = init_gpio();
     if (err != 0) {
         LOG_ERR("GPIO init failed (%d)", err);
+        return 0;
+    }
+    err = markers_init();
+    if (err != 0) {
+        LOG_ERR("Marker init failed (%d)", err);
         return 0;
     }
 
