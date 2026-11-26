@@ -21,6 +21,21 @@ def compare_runs(
     resamples: int = DEFAULT_RESAMPLES,
 ) -> list[dict[str, Any]]:
     """Return one comparison per (rq, condition), built from complete matched pairs."""
+    return [
+        _compare_condition(rq, condition, pairs, metric, seed, resamples)
+        for (rq, condition), pairs in matched_pairs(summaries).items()
+    ]
+
+
+Pair = tuple[str, dict[str, Any], dict[str, Any]]
+
+
+def matched_pairs(summaries: list[dict[str, Any]]) -> dict[tuple[str, str], list[Pair]]:
+    """Group summaries by (rq, condition) into (pair_id, baseline, candidate) tuples.
+
+    Raises ValueError for a run without pairing fields, a pair that lacks a role or has
+    one twice, and a pair whose two runs are not matched.
+    """
     conditions: dict[tuple[str, str], dict[str, dict[str, dict[str, Any]]]] = {}
     for summary in summaries:
         missing = [name for name in PAIRING_FIELDS if name not in summary]
@@ -35,26 +50,27 @@ def compare_runs(
             )
         roles[summary["role"]] = summary
 
-    return [
-        _compare_condition(rq, condition, pairs, metric, seed, resamples)
-        for (rq, condition), pairs in sorted(conditions.items())
-    ]
+    matched: dict[tuple[str, str], list[Pair]] = {}
+    for key, pairs in sorted(conditions.items()):
+        matched[key] = []
+        for pair_id, roles in sorted(pairs.items()):
+            if set(roles) != {"baseline", "candidate"}:
+                raise ValueError(f"pair {pair_id!r} in {key[1]!r} needs a baseline and a candidate")
+            _require_matched(pair_id, roles["baseline"], roles["candidate"])
+            matched[key].append((pair_id, roles["baseline"], roles["candidate"]))
+    return matched
 
 
 def _compare_condition(
     rq: str,
     condition: str,
-    pairs: dict[str, dict[str, dict[str, Any]]],
+    pairs: list[Pair],
     metric: str,
     seed: int,
     resamples: int,
 ) -> dict[str, Any]:
     baselines, candidates, warnings = [], [], []
-    for pair_id, roles in sorted(pairs.items()):
-        if set(roles) != {"baseline", "candidate"}:
-            raise ValueError(f"pair {pair_id!r} in {condition!r} needs a baseline and a candidate")
-        baseline, candidate = roles["baseline"], roles["candidate"]
-        _require_matched(pair_id, baseline, candidate)
+    for pair_id, baseline, candidate in pairs:
         durations = [run["total"]["duration_s"] for run in (baseline, candidate)]
         if abs(durations[0] - durations[1]) > DURATION_TOLERANCE * max(durations):
             warnings.append(
@@ -75,8 +91,8 @@ def _compare_condition(
         "rq": rq,
         "condition": condition,
         "metric": metric,
-        "baseline_variant": _single(baselines, "variant", condition),
-        "candidate_variant": _single(candidates, "variant", condition),
+        "baseline_variant": single_value(baselines, "variant", condition),
+        "candidate_variant": single_value(candidates, "variant", condition),
         "phase": "formal-frozen" if all_formal else "pilot",
         "board_revs": sorted({run["metadata"]["board_rev"] for run in runs}),
         "baseline_firmware_shas": sorted({run["metadata"]["firmware_sha"] for run in baselines}),
@@ -98,10 +114,11 @@ def _require_matched(pair_id: str, baseline: dict[str, Any], candidate: dict[str
         raise ValueError(f"pair {pair_id!r} is not matched on {mismatched}")
 
 
-def _single(runs: list[dict[str, Any]], name: str, condition: str) -> str:
+def single_value(runs: list[dict[str, Any]], name: str, context: str) -> str:
+    """The one value of ``name`` that all ``runs`` share."""
     values = {run[name] for run in runs}
     if len(values) != 1:
-        raise ValueError(f"{condition!r} mixes several {name} values in one role: {sorted(values)}")
+        raise ValueError(f"{context!r} mixes several {name} values in one role: {sorted(values)}")
     return values.pop()
 
 

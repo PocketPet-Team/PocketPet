@@ -15,12 +15,14 @@ from typing import Any
 import numpy as np
 
 from pocketpet_analysis import __version__
+from pocketpet_analysis import schedule as schedules
 from pocketpet_analysis.attribution import attribute_charge
+from pocketpet_analysis.breakeven import break_even
 from pocketpet_analysis.compare import compare_runs
 from pocketpet_analysis.manifest import load_manifest
 from pocketpet_analysis.ppk2 import DEFAULT_CHUNK_ROWS, read_capture
 from pocketpet_analysis.stats import DEFAULT_RESAMPLES, success_rate_ci
-from pocketpet_analysis.synthetic import write_synthetic_pairs
+from pocketpet_analysis.synthetic import write_synthetic_pairs, write_synthetic_sweep
 
 SUMMARY_SCHEMA = 1
 HOURS_PER_DAY = 24.0
@@ -189,6 +191,34 @@ def _parser() -> argparse.ArgumentParser:
     command.add_argument("out_dir", type=Path)
     command.add_argument("--pairs", type=int, default=10)
     command.add_argument("--seed", type=int, default=0)
+    command.add_argument(
+        "--schedules",
+        type=Path,
+        nargs="+",
+        help="write a wake-policy sweep over these trigger schedules instead",
+    )
+
+    command = add("sweep", "write one trigger schedule per wake rate")
+    command.add_argument("out_dir", type=Path)
+    command.add_argument("--rates", type=float, nargs="+", required=True, help="triggers per hour")
+    command.add_argument("--duration-s", type=float, required=True)
+    command.add_argument(
+        "--min-gap-ms", type=int, required=True, help="shortest time between two triggers"
+    )
+    command.add_argument("--pattern", choices=schedules.PATTERNS, default="random")
+    command.add_argument("--seed", type=int, default=0)
+    command.add_argument("--prefix", default="wake-sweep", help="start of each schedule_id")
+
+    command = add("import-schedule", "turn recorded interrupt times into a trigger schedule")
+    command.add_argument("recording", type=Path, help="CSV with a time_ms column")
+    command.add_argument("--schedule-id", required=True)
+    command.add_argument("--duration-s", type=float, required=True, help="recording length")
+    command.add_argument("--min-gap-ms", type=int, required=True)
+
+    command = add("breakeven", "trigger rate at which a wake policy's saving is used up")
+    command.add_argument("summaries", type=Path, nargs="+")
+    command.add_argument("--schedules", type=Path, nargs="+", required=True)
+    add_bootstrap_options(command)
     return parser
 
 
@@ -228,8 +258,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             summary = _read_json(args.summary) if args.summary else None
             _emit(budget(args.capacity_mah, args.days, summary), args.output)
         elif args.command == "synth":
-            for manifest in write_synthetic_pairs(args.out_dir, pairs=args.pairs, seed=args.seed):
+            if args.schedules:
+                loaded = list(schedules.load_all(_expand(args.schedules)).values())
+                manifests = write_synthetic_sweep(
+                    args.out_dir, loaded, pairs=args.pairs, seed=args.seed
+                )
+            else:
+                manifests = write_synthetic_pairs(args.out_dir, pairs=args.pairs, seed=args.seed)
+            for manifest in manifests:
                 print(manifest)
+        elif args.command == "sweep":
+            generated = schedules.sweep(
+                args.prefix,
+                args.rates,
+                pattern=args.pattern,
+                duration_s=args.duration_s,
+                min_gap_ms=args.min_gap_ms,
+                seed=args.seed,
+            )
+            for schedule in generated:
+                print(schedules.save(schedule, args.out_dir))
+        elif args.command == "import-schedule":
+            schedule = schedules.from_recording(
+                args.recording,
+                schedule_id=args.schedule_id,
+                duration_s=args.duration_s,
+                min_gap_ms=args.min_gap_ms,
+            )
+            _emit(schedule.to_json(), args.output)
+        elif args.command == "breakeven":
+            result = break_even(
+                [_read_json(path) for path in _expand(args.summaries)],
+                schedules.load_all(_expand(args.schedules)),
+                seed=args.seed,
+                resamples=args.resamples,
+            )
+            _emit(result, args.output)
     except (OSError, ValueError, KeyError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
