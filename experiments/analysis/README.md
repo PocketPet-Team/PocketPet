@@ -29,11 +29,59 @@ uv run pocketpet-analysis compare "demo/summaries/*.json" --seed 1
 
 ## Workflow for a real run
 
-1. Plan the order. `uv run pocketpet-analysis plan --pairs 10 --seed <n>` prints which role runs first in each pair. Record the seed.
-2. Capture with the PPK2 and export CSV from the Power Profiler with timestamp, current, and one of the digital options selected. Put the export under `experiments/data/raw/`, which Git ignores.
-3. Write a manifest next to the capture (format below).
+1. Write an experiment definition and run `prepare` (see below). It fixes the run order and writes a manifest skeleton for every run.
+2. Capture the runs in the order `plan.csv` lists them. Export CSV from the Power Profiler with timestamp, current, and one of the digital options selected, and save each export under the name its manifest expects.
+3. Fill in `ambient_temp_c` in each manifest as you go.
 4. Run `summarize` and commit the summary JSON under `experiments/data/`.
 5. Run `compare` on the summaries of one research question.
+
+For a single pair or a quick trial, `uv run pocketpet-analysis plan --pairs 10 --seed <n>` prints which role runs first in each pair, and the manifests can be written by hand (format below).
+
+## Prepare an experiment
+
+An experiment definition states, before any capture, what a set of matched pairs compares:
+
+```json
+{
+  "rq": "RQ1",
+  "pairs": 10,
+  "seed": 20261126,
+  "order": "rounds",
+  "baseline": {"variant": "polling"},
+  "candidate": {"variant": "interrupt"},
+  "conditions": [
+    {"condition": "wake-0ph", "workload": "wake-sweep-random-0ph-s1"},
+    {"condition": "wake-12ph", "workload": "wake-sweep-random-12ph-s1"}
+  ],
+  "metadata": {
+    "board_rev": "nrf52840-dk",
+    "board_id": "dk-01",
+    "firmware_sha": "<commit of the flashed firmware>",
+    "supply_v": 3.7,
+    "phone_model": "none",
+    "os_version": "none",
+    "phase": "pilot"
+  },
+  "markers_file": "ppk2-markers.json",
+  "schedules": ["workloads/*.schedule.json"]
+}
+```
+
+The values above only show the shape of the file. Then:
+
+```sh
+uv run pocketpet-analysis prepare rq1-pilot.plan.json ../data/raw/rq1-pilot
+```
+
+`prepare` writes `plan.csv` and one `<run_id>.json` manifest per run into the output directory, which is also where the captures go. `experiments/data/raw/` is ignored by Git, so commit the definition somewhere else. It refuses to replace a file that already exists, because a manifest may hold values recorded during its run.
+
+- `plan.csv` lists the runs in the order to capture them. The two runs of a pair are adjacent and their order is random. With `"order": "rounds"` (the default) each round holds one pair of every condition in a random order, so slow drift in the battery or the room spreads evenly over the conditions. `"order": "grouped"` runs all pairs of a condition together, in the order the definition lists the conditions.
+- The same definition always gives the same plan. Change `seed` to get another.
+- Each manifest has every field filled in except `metadata.ambient_temp_c`, which is `null`. `summarize` rejects the manifest until the temperature is recorded.
+- A role can carry its own `firmware_sha` when baseline and candidate are different commits. Otherwise both use the one in `metadata`.
+- `markers` holds the marker block inline, and `markers_file` reads it from a JSON file. Paths in a definition are relative to the definition file.
+- `schedules` is optional. When given, every `workload` must be the `schedule_id` of one of those files, and `plan.csv` shows each run's length in `duration_s`.
+- A definition whose `phase` is `formal-frozen` needs at least 10 pairs.
 
 ## Run manifest
 

@@ -14,7 +14,7 @@ experiments/
 
 ## Analysis Pipeline
 
-[`analysis/`](analysis/README.md) reads a Power Profiler CSV export and a run manifest, integrates charge, splits it into per-state background and per-event increments, and compares matched baseline and candidate runs with bootstrap confidence intervals. It also writes the trigger schedules for a wake-rate sweep and fits the RQ1 break-even rate from the sweep's runs. Its README covers setup, the manifest and schedule formats, and the checks to run.
+[`analysis/`](analysis/README.md) reads a Power Profiler CSV export and a run manifest, integrates charge, splits it into per-state background and per-event increments, and compares matched baseline and candidate runs with bootstrap confidence intervals. It also plans the run order of an experiment and writes its manifest skeletons, writes the trigger schedules for a wake-rate sweep, and fits the RQ1 break-even rate from the sweep's runs. Its README covers setup, the manifest and schedule formats, and the checks to run.
 
 ## Measurement & Validation Protocol
 
