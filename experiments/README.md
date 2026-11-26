@@ -1,16 +1,20 @@
 # Experiments & Power Analysis
 
-> **Status: Planned / scaffolded.** No replay controller firmware, workload logs, or analysis scripts are committed yet.
+> **Status:** The [analysis pipeline](analysis/README.md) is available and tested on synthetic captures. The replay controller firmware, workload traces, and measured datasets are planned.
 
-## Planned Directory Layout
+## Directory Layout
 
 ```text
 experiments/
-├── replay-controller/   # STM32F103 firmware driving LTV-817 optocouplers and LED video markers
-├── workloads/           # Trace definitions (desk, graded bag-carry, pickup, active-use, 24h mixed-use)
-├── analysis/            # Python scripts for PPK2 charge integration, event attribution, and 95% CIs
-└── data/                # Compact processed CSV/JSON summaries (data/raw/ is gitignored)
+├── replay-controller/   # Planned: STM32F103 firmware driving LTV-817 optocouplers and LED video markers
+├── workloads/           # Planned: trace definitions (desk, graded bag-carry, pickup, active-use, 24h mixed-use)
+├── analysis/            # Python package for PPK2 charge integration, event attribution, and 95% CIs
+└── data/                # Planned: compact processed CSV/JSON summaries (data/raw/ is gitignored)
 ```
+
+## Analysis Pipeline
+
+[`analysis/`](analysis/README.md) reads a Power Profiler CSV export and a run manifest, integrates charge, splits it into per-state background and per-event increments, and compares matched baseline and candidate runs with bootstrap confidence intervals. Its README covers setup, the manifest format, and the checks to run.
 
 ## Measurement & Validation Protocol
 
@@ -26,7 +30,7 @@ experiments/
 
 ## Required Metadata per Run
 
-Every committed summary table or dataset should record:
+Every committed summary table or dataset should record the fields below. The analysis pipeline rejects a run manifest that lacks any of them.
 - `board_rev` (e.g., `nrf52840-dk`, `compact-revA`)
 - `firmware_sha` (exact Git commit)
 - `supply_v` and `ambient_temp_c`
