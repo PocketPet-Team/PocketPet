@@ -2,7 +2,7 @@
 
 Python tools that turn a Nordic PPK2 capture into a compact charge summary, compare matched baseline and candidate runs, and generate the trigger schedules for the RQ1 wake-rate sweep.
 
-> **Status:** The pipeline is tested against synthetic captures only. No PPK2 capture from PocketPet hardware has been processed yet, and the logic-marker pin assignment is still to be decided with the firmware and bench rig.
+> **Status:** The pipeline has been tested on synthetic captures. The DK has a provisional marker layout. Wiring, timing accuracy and device currents still need bench verification.
 
 ## Setup and checks
 
@@ -34,6 +34,8 @@ uv run pocketpet-analysis compare "demo/summaries/*.json" --seed 1
 3. Fill in `ambient_temp_c` in each manifest as you go.
 4. Run `summarize` and commit the summary JSON under `experiments/data/`.
 5. Run `compare` on the summaries of one research question.
+
+For reconnection, transfer freshness, button and Find timing, precision loads and the mixed-use day, see the [bench analysis guide](../../docs/bench-analysis.md). It describes the optional manifest sections, the physical observations each metric needs and the commands to reproduce the analysis.
 
 For a single pair or a quick trial, `uv run pocketpet-analysis plan --pairs 10 --seed <n>` prints which role runs first in each pair, and the manifests can be written by hand (format below).
 

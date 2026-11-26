@@ -1,0 +1,15 @@
+/*
+ * Provisional bench wiring for the PPK2 logic markers. P1.03 to P1.07 are the
+ * DK's Arduino header pins D2 to D6, which no enabled peripheral of this
+ * application uses. The compact board will choose its own pins.
+ */
+/ {
+	ppk2-markers {
+		compatible = "pocketpet,ppk2-markers";
+		gpios = <&gpio1 3 GPIO_ACTIVE_HIGH>, /* PPK2 D0: state bit 0 */
+			<&gpio1 4 GPIO_ACTIVE_HIGH>, /* PPK2 D1: state bit 1 */
+			<&gpio1 5 GPIO_ACTIVE_HIGH>, /* PPK2 D2: button */
+			<&gpio1 6 GPIO_ACTIVE_HIGH>, /* PPK2 D3: haptic */
+			<&gpio1 7 GPIO_ACTIVE_HIGH>; /* PPK2 D4: transfer */
+	};
+};

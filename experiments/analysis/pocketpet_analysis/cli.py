@@ -14,16 +14,18 @@ from typing import Any
 
 import numpy as np
 
-from pocketpet_analysis import __version__
+from pocketpet_analysis import __version__, trials
 from pocketpet_analysis import schedule as schedules
 from pocketpet_analysis.attribution import attribute_charge
 from pocketpet_analysis.breakeven import break_even
 from pocketpet_analysis.compare import compare_runs
 from pocketpet_analysis.manifest import load_manifest
+from pocketpet_analysis.power import check_load, mixed_day, positive
 from pocketpet_analysis.ppk2 import DEFAULT_CHUNK_ROWS, read_capture
 from pocketpet_analysis.runplan import load_definition, write_run_files
 from pocketpet_analysis.stats import DEFAULT_RESAMPLES, success_rate_ci
 from pocketpet_analysis.synthetic import write_synthetic_pairs, write_synthetic_sweep
+from pocketpet_analysis.trace import MarkerTrace, number
 
 SUMMARY_SCHEMA = 1
 HOURS_PER_DAY = 24.0
@@ -32,8 +34,12 @@ HOURS_PER_DAY = 24.0
 def summarize(manifest_path: Path, chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict[str, Any]:
     """Build the compact summary for one run: labels, totals, and attributed charge."""
     manifest = load_manifest(manifest_path)
+    trace = MarkerTrace(manifest.markers, manifest.observations) if manifest.observations else None
     result = attribute_charge(
-        read_capture(manifest.capture, chunk_rows), manifest.markers, manifest.sample_period_s
+        read_capture(manifest.capture, chunk_rows),
+        manifest.markers,
+        manifest.sample_period_s,
+        trace=trace,
     )
     # Only the file name is kept so a committed summary never carries a local path.
     capture = {"file": manifest.capture.name, "sha256": _sha256(manifest.capture)}
@@ -48,6 +54,16 @@ def summarize(manifest_path: Path, chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict
     }
     if manifest.notes:
         summary["notes"] = manifest.notes
+    if manifest.calibration is not None:
+        summary["calibration"] = check_load(manifest.calibration, summary)
+    if trace is not None:
+        obs = manifest.observations
+        if "rq3" in obs:
+            summary["rq3"] = trials.reconnect(trace, obs["rq3"])
+        if "rq4" in obs:
+            summary["rq4"] = trials.transfers(trace, obs["rq4"], summary)
+        if "responses" in obs:
+            summary["responses"] = trials.responses(trace, obs["responses"])
     return summary
 
 
@@ -55,15 +71,25 @@ def response_rate(
     trials_csv: Path, threshold_ms: float, target: float, seed: int, resamples: int
 ) -> dict[str, Any]:
     """Score response trials against a latency threshold; a blank latency is a timeout."""
+    positive(threshold_ms, "threshold_ms")
+    if not 0 <= number(target, "target") <= 1:
+        raise ValueError("target must be a rate between zero and one")
     successes: dict[str, int] = {}
     trials: dict[str, int] = {}
     timeouts = 0
     with trials_csv.open(encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
+            if not row.get("run_id") or row.get("latency_ms") is None:
+                raise ValueError("each response row needs a run_id and a latency_ms field")
             run_id, latency = row["run_id"], row["latency_ms"].strip()
             trials[run_id] = trials.get(run_id, 0) + 1
             timeouts += not latency
-            on_time = bool(latency) and float(latency) <= threshold_ms
+            on_time = False
+            if latency:
+                elapsed = number(float(latency), "latency_ms")
+                if elapsed < 0:
+                    raise ValueError("latency_ms cannot be negative")
+                on_time = elapsed <= threshold_ms
             successes[run_id] = successes.get(run_id, 0) + on_time
     if not trials:
         raise ValueError(f"{trials_csv.name} has no trials")
@@ -97,7 +123,9 @@ def randomized_plan(pairs: int, seed: int) -> list[tuple[str, int, str]]:
 
 def budget(capacity_mah: float, days: float, summary: dict[str, Any] | None) -> dict[str, Any]:
     """Compare a run's mean current with the average current the cell capacity allows."""
-    budget_ua = capacity_mah * 1000.0 / (days * HOURS_PER_DAY)
+    budget_ua = (
+        positive(capacity_mah, "capacity_mah") * 1000 / (positive(days, "days") * HOURS_PER_DAY)
+    )
     result: dict[str, Any] = {
         "capacity_mah": capacity_mah,
         "target_days": days,
@@ -141,7 +169,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _emit(result: Any, output: Path | None) -> None:
-    text = json.dumps(result, indent=2) + "\n"
+    text = json.dumps(result, indent=2, allow_nan=False) + "\n"
     if output is None:
         sys.stdout.write(text)
     else:
@@ -182,6 +210,18 @@ def _parser() -> argparse.ArgumentParser:
     command = add("plan", "randomized run order for matched pairs, as CSV")
     command.add_argument("--pairs", type=int, default=10)
     command.add_argument("--seed", type=int, required=True)
+
+    command = add("response-criteria", "score button and nearby Find trials by run and condition")
+    command.add_argument("summaries", type=Path, nargs="+")
+    add_bootstrap_options(command)
+
+    command = add("mixed-day", "project a 24-hour workload from a profiled run")
+    command.add_argument("profile", type=Path, help="run summary with state and event attribution")
+    command.add_argument("workload", type=Path, help="JSON with state hours and event segments")
+    command.add_argument(
+        "--capacity-mah", type=float, required=True, help="usable capacity at cutoff"
+    )
+    command.add_argument("--measured-day", type=Path, help="continuous 24-hour workload summary")
 
     command = add("prepare", "write the run order and manifest skeletons for an experiment")
     command.add_argument("definition", type=Path, help="experiment definition (JSON)")
@@ -251,6 +291,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.trials, args.threshold_ms, args.target, args.seed, args.resamples
             )
             _emit(result, args.output)
+        elif args.command == "response-criteria":
+            summaries = [_read_json(path) for path in _expand(args.summaries)]
+            _emit(trials.response_criteria(summaries, args.seed, args.resamples), args.output)
+        elif args.command == "mixed-day":
+            measured = _read_json(args.measured_day) if args.measured_day else None
+            _emit(
+                mixed_day(
+                    _read_json(args.profile), _read_json(args.workload), args.capacity_mah, measured
+                ),
+                args.output,
+            )
         elif args.command == "plan":
             lines = ["pair_id,order,role"]
             lines += [",".join(map(str, row)) for row in randomized_plan(args.pairs, args.seed)]
@@ -302,7 +353,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 resamples=args.resamples,
             )
             _emit(result, args.output)
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0

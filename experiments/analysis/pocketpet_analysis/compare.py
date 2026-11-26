@@ -9,7 +9,15 @@ from pocketpet_analysis.stats import DEFAULT_RESAMPLES, paired_difference_ci
 
 # A pair must share these, because a difference in any of them is a competing explanation
 # for a charge difference. ``board_id`` is checked too when a manifest records it.
-MATCHED_METADATA = ("board_rev", "board_id", "supply_v", "phone_model", "os_version")
+MATCHED_METADATA = (
+    "board_rev",
+    "board_id",
+    "supply_v",
+    "phone_model",
+    "os_version",
+    "feedback_settings",
+    "command_sequence",
+)
 DURATION_TOLERANCE = 0.01
 
 
@@ -110,6 +118,19 @@ def _require_matched(pair_id: str, baseline: dict[str, Any], candidate: dict[str
     ]
     if baseline["workload"] != candidate["workload"]:
         mismatched.append("workload")
+    if "rq3" in baseline or "rq3" in candidate:
+        for field in ("initial_adv_interval_units", "tx_power_dbm", "lfclk", "phone_locked"):
+            if baseline["metadata"].get(field) != candidate["metadata"].get(field):
+                mismatched.append(field)
+    for section, field in (("rq3", "timeout_ms"), ("rq4", "freshness_limit_ms")):
+        if baseline.get(section, {}).get(field) != candidate.get(section, {}).get(field):
+            mismatched.append(field)
+    if len(baseline.get("rq3", {}).get("trials", [])) != len(
+        candidate.get("rq3", {}).get("trials", [])
+    ):
+        mismatched.append("number of separations")
+    if baseline.get("rq4", {}).get("updates") != candidate.get("rq4", {}).get("updates"):
+        mismatched.append("number of due updates")
     if mismatched:
         raise ValueError(f"pair {pair_id!r} is not matched on {mismatched}")
 
@@ -126,4 +147,6 @@ def _metric(summary: dict[str, Any], dotted_path: str) -> float:
     value: Any = summary
     for part in dotted_path.split("."):
         value = value[part]
+    if not isinstance(value, (float, int)):
+        raise ValueError(f"{dotted_path} is unavailable for run {summary['run_id']!r}")
     return float(value)

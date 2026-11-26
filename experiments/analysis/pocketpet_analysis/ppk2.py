@@ -76,6 +76,8 @@ def _column_layout(header: list[str], path: Path) -> tuple[list[int], list[tuple
 
 
 def _to_chunk(rows: np.ndarray) -> Chunk:
+    if not (np.isfinite(rows["time_ms"]).all() and np.isfinite(rows["current_ua"]).all()):
+        raise ValueError("timestamps and currents must be finite")
     names = rows.dtype.names
     if "packed" in names:
         # A short field is NUL-padded and fails the character check below.
