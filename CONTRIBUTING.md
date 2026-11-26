@@ -34,6 +34,6 @@ Thanks for contributing to PocketPet. Because this repository spans embedded fir
   - Firmware commit SHA
   - Supply voltage and ambient temperature (`PCT2075` log)
   - Companion phone model and OS version
-  - Status (`pilot` vs. `frozen-formal`)
+  - Phase (`pilot` vs. `formal-frozen`)
 
 See [AGENTS.md](AGENTS.md) for the project's full engineering and measurement invariants.
