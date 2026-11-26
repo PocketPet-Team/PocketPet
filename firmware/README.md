@@ -116,9 +116,18 @@ west build -b nrf52840dk/nrf52840 -d <rc-build-dir> <repo>/firmware/app -- -DEXT
 
 With NCS v3.4.2 this image sets `CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y` and calibrates every 4000 ms (`CONFIG_MPSL_CALIBRATION_PERIOD`). The default image uses the 32.768 kHz crystal. Check `zephyr/.config` in the build directory to confirm which one a build used.
 
-Both images build without warnings. With markers enabled, the default image uses 136,804 B of flash and 25,960 B of RAM.
+For RQ2, select an interval profile in addition to the clock. The short and long profiles request 30 ms and 120 ms respectively, with zero peripheral latency, a 4 s supervision timeout and fixed controller TX power of 0 dBm. These values are bench starting points. The pilot must establish which intervals the phone will accept.
 
-CI builds the default image, the RC clock image, and an image without PPK2 markers on every change to `app/`, `core/`, or the manifest, with compiler warnings treated as errors. It runs in Nordic's toolchain container and fetches the SDK through [`west.yml`](west.yml), which pins the SDK version and lists only the repositories the application uses:
+```sh
+west build -b nrf52840dk/nrf52840 -d build/xtal-short <repo>/firmware/app -- -DEXTRA_CONF_FILE=rq2-short.conf
+west build -b nrf52840dk/nrf52840 -d build/xtal-long <repo>/firmware/app -- -DEXTRA_CONF_FILE=rq2-long.conf
+west build -b nrf52840dk/nrf52840 -d build/rc-short <repo>/firmware/app -- "-DEXTRA_CONF_FILE=rq2-short.conf;clock-rc.conf"
+west build -b nrf52840dk/nrf52840 -d build/rc-long <repo>/firmware/app -- "-DEXTRA_CONF_FILE=rq2-long.conf;clock-rc.conf"
+```
+
+Zephyr's GAP worker requests the configured interval on each connection. The phone chooses the active interval. At bring-up, check the running LF clock in the boot log and the active interval in the connection and parameter-update logs. For a quiet capture, build with `-DCONFIG_LOG=n` and read the [RQ2 characteristic](../docs/ble-protocol.md#rq2-connection-parameters) just before and after the integration window. Record the active values in the run metadata. Repeat or label the run separately if the phone uses another interval, changes latency or renegotiates during the window. Compare short and long runs within each clock on the same board, then compare the two charge savings.
+
+The CI workflow builds the default image, the RC clock image, an image without PPK2 markers and the four RQ2 clock/interval combinations. It treats compiler warnings as errors and checks the generated configurations. It runs in Nordic's toolchain container and fetches the SDK through [`west.yml`](west.yml).
 
 ```sh
 west init -l --mf firmware/west.yml <clone>

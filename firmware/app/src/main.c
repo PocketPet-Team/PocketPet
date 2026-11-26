@@ -28,6 +28,18 @@
 
 LOG_MODULE_REGISTER(pocketpet, LOG_LEVEL_INF);
 
+#ifdef CONFIG_POCKETPET_RQ2
+/* The GAP worker uses these same values for the PPCP and its update request. */
+BUILD_ASSERT(CONFIG_BT_PERIPHERAL_PREF_MIN_INT == CONFIG_BT_PERIPHERAL_PREF_MAX_INT);
+BUILD_ASSERT(IN_RANGE(CONFIG_BT_PERIPHERAL_PREF_MAX_INT, 6, 3200));
+BUILD_ASSERT(IN_RANGE(CONFIG_BT_PERIPHERAL_PREF_TIMEOUT, 10, 3200));
+BUILD_ASSERT(CONFIG_BT_PERIPHERAL_PREF_TIMEOUT * 4 >
+             (CONFIG_BT_PERIPHERAL_PREF_LATENCY + 1) * CONFIG_BT_PERIPHERAL_PREF_MAX_INT);
+BUILD_ASSERT(!IS_ENABLED(CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL));
+BUILD_ASSERT(!IS_ENABLED(CONFIG_BT_TRANSMIT_POWER_CONTROL));
+BUILD_ASSERT(!IS_ENABLED(CONFIG_BT_CTLR_LE_POWER_CONTROL));
+#endif
+
 #define BUTTON_LOCKOUT_MS 50
 #define EVENT_QUEUE_LENGTH 16
 
@@ -276,6 +288,17 @@ static void log_connection_parameters(struct bt_conn *conn, const char *when)
     if (bt_conn_get_info(conn, &info) == 0) {
         LOG_INF("%s: interval %u us, latency %u, timeout %u ms", when, info.le.interval_us,
                 info.le.latency, info.le.timeout * 10U);
+#ifdef CONFIG_POCKETPET_RQ2
+        const unsigned int target_us = CONFIG_BT_PERIPHERAL_PREF_MIN_INT * 1250U;
+        LOG_INF("RQ2 target_us=%u active_us=%u target_latency=%u active_latency=%u "
+                "configured_tx_dbm=%d match=%u",
+                target_us, info.le.interval_us, (unsigned)CONFIG_BT_PERIPHERAL_PREF_LATENCY,
+                info.le.latency, CONFIG_BT_CTLR_TX_PWR_DBM,
+                (unsigned)(info.le.interval_us == target_us &&
+                           info.le.latency == CONFIG_BT_PERIPHERAL_PREF_LATENCY));
+#endif
+    } else {
+        LOG_WRN("Active connection parameters unavailable at %s", when);
     }
 }
 
@@ -323,6 +346,9 @@ static void parameters_updated(struct bt_conn *conn, uint16_t interval, uint16_t
     ARG_UNUSED(interval);
     ARG_UNUSED(latency);
     ARG_UNUSED(timeout);
+#ifdef CONFIG_POCKETPET_RQ2
+    pet_service_note_param_update();
+#endif
     log_connection_parameters(conn, "Parameters updated");
 }
 

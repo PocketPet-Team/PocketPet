@@ -6,6 +6,7 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/sys/atomic.h>
+#include <zephyr/sys/byteorder.h>
 
 #define FIND_REQUEST 0x01
 
@@ -16,6 +17,34 @@ static const struct bt_uuid_128 find_uuid = BT_UUID_INIT_128(PET_FIND_UUID_VAL);
 static const struct pet_service_callbacks *service_callbacks;
 /* Written by the application work item, read by the Bluetooth RX thread. */
 static atomic_t stored_mood;
+
+#ifdef CONFIG_POCKETPET_RQ2
+static const struct bt_uuid_128 rq2_uuid = BT_UUID_INIT_128(PET_RQ2_UUID_VAL);
+static atomic_t param_updates;
+
+void pet_service_note_param_update(void)
+{
+    atomic_inc(&param_updates);
+}
+
+static ssize_t read_rq2(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
+                        uint16_t len, uint16_t offset)
+{
+    struct bt_conn_info info;
+    uint8_t value[16];
+    if (bt_conn_get_info(conn, &info) != 0) {
+        return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+    }
+    value[0] = 1;
+    value[1] = (uint8_t)(int8_t)CONFIG_BT_CTLR_TX_PWR_DBM;
+    sys_put_le16(CONFIG_BT_PERIPHERAL_PREF_MIN_INT, &value[2]);
+    sys_put_le32(info.le.interval_us, &value[4]);
+    sys_put_le16(info.le.latency, &value[8]);
+    sys_put_le16(info.le.timeout, &value[10]);
+    sys_put_le32((uint32_t)atomic_get(&param_updates), &value[12]);
+    return bt_gatt_attr_read(conn, attr, buf, len, offset, value, sizeof(value));
+}
+#endif
 
 static void encode_state(uint8_t value[2])
 {
@@ -76,6 +105,9 @@ BT_GATT_SERVICE_DEFINE(pet_service,
     BT_GATT_CHARACTERISTIC(&find_uuid.uuid,
                            BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP,
                            BT_GATT_PERM_WRITE, NULL, write_find, NULL),
+    IF_ENABLED(CONFIG_POCKETPET_RQ2,
+        (BT_GATT_CHARACTERISTIC(&rq2_uuid.uuid, BT_GATT_CHRC_READ, BT_GATT_PERM_READ,
+                                read_rq2, NULL, NULL),))
 );
 
 /* Index of the state value attribute in pet_service.attrs. */

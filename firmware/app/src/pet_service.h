@@ -15,6 +15,7 @@
 #define PET_SERVICE_UUID_VAL PET_UUID_ENCODE(0x0001)
 #define PET_STATE_UUID_VAL PET_UUID_ENCODE(0x0002)
 #define PET_FIND_UUID_VAL PET_UUID_ENCODE(0x0003)
+#define PET_RQ2_UUID_VAL PET_UUID_ENCODE(0x0004)
 
 /* Version byte at the start of the state characteristic value. */
 #define PET_STATE_FORMAT_VERSION 1
@@ -35,6 +36,11 @@ void pet_service_init(const struct pet_service_callbacks *callbacks);
 
 /* Store the mood a peer reads from the state characteristic. */
 void pet_service_set_mood(uint8_t mood);
+
+#ifdef CONFIG_POCKETPET_RQ2
+/* Count parameter-update callbacks so two reads can bracket a quiet capture. */
+void pet_service_note_param_update(void);
+#endif
 
 /* Notify subscribed peers of the stored mood; returns 0 or a negative errno. */
 int pet_service_notify_state(void);

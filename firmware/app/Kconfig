@@ -1,5 +1,12 @@
 menu "PocketPet"
 
+config POCKETPET_RQ2
+	bool "Use a single preferred BLE interval for an RQ2 trial"
+	depends on BT_GAP_AUTO_UPDATE_CONN_PARAMS && BT_GAP_PERIPHERAL_PREF_PARAMS
+	help
+	  Let the Zephyr peripheral request its preferred interval on each link.
+	  Log the active interval so the operator can identify a phone override.
+
 # The defaults below make the application run. They are not pilot values; RQ3
 # fixes the intervals and the switch time during pilot runs.
 

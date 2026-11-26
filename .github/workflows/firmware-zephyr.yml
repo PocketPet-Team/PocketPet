@@ -58,3 +58,23 @@ jobs:
           grep -x 'CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y' build/clock-rc/app/zephyr/.config
           grep -x 'CONFIG_POCKETPET_PPK2_MARKERS=y' build/default/app/zephyr/.config
           grep -x '# CONFIG_POCKETPET_PPK2_MARKERS is not set' build/no-markers/app/zephyr/.config
+      - name: Build both RQ2 intervals on each clock
+        run: |
+          for clock in xtal rc; do
+            for interval in short long; do
+              config="rq2-${interval}.conf"
+              if [[ $clock == rc ]]; then config+=";clock-rc.conf"; fi
+              out="build/rq2-$clock-$interval"
+              west build -b "$BOARD" -d "$out" pocketpet/firmware/app -- \
+                "-DEXTRA_CONF_FILE=$config" -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y
+              grep -x 'CONFIG_POCKETPET_RQ2=y' "$out/app/zephyr/.config"
+              expected=24
+              if [[ $interval == long ]]; then expected=96; fi
+              for bound in MIN MAX; do
+                grep -x "CONFIG_BT_PERIPHERAL_PREF_${bound}_INT=$expected" "$out/app/zephyr/.config"
+              done
+              grep -x 'CONFIG_BT_PERIPHERAL_PREF_LATENCY=0' "$out/app/zephyr/.config"
+              grep -x 'CONFIG_BT_CTLR_TX_PWR_DBM=0' "$out/app/zephyr/.config"
+              grep -x "CONFIG_CLOCK_CONTROL_NRF_K32SRC_${clock^^}=y" "$out/app/zephyr/.config"
+            done
+          done
